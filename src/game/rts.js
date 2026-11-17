@@ -152,6 +152,12 @@ export class Rts {
     if (input.down('KeyD') || input.down('ArrowRight')) this.focus.addScaledVector(r, pan);
     if (input.down('KeyQ')) this.yaw += realDt * 1.2;
     if (input.down('KeyE')) this.yaw -= realDt * 1.2;
+    // Controller left stick pans the camera
+    const pad = input.pad;
+    if (pad.connected && (pad.lx || pad.ly)) {
+      this.focus.addScaledVector(f, -pad.ly * pan * 1.2);
+      this.focus.addScaledVector(r, pad.lx * pan * 1.2);
+    }
     // Edge scrolling
     const m = input.mouse, W = innerWidth, H = innerHeight;
     if (m.y < 6) this.focus.addScaledVector(f, pan);
@@ -280,6 +286,17 @@ export class Rts {
     }
   }
 
+  // Controller LB/RB: step through our regiments one at a time and fly the camera to each
+  cycleSelection(dir) {
+    const mine = this.regiments.filter((r) => r.team === TEAM_REBEL && r.alive - r.routing > 0);
+    if (!mine.length) return;
+    const cur = mine.findIndex((r) => this.selected.has(r.id));
+    const next = mine[((cur < 0 ? (dir > 0 ? -1 : 0) : cur) + dir + mine.length) % mine.length];
+    this.selected.clear();
+    this.selected.add(next.id);
+    this.focus.set(next.cx, 0, next.cz);
+  }
+
   selectAll() {
     this.selected.clear();
     for (const r of this.regiments) if (r.team === TEAM_REBEL && r.alive > 0) this.selected.add(r.id);
@@ -298,8 +315,16 @@ export class Rts {
     this.raycaster.setFromCamera(this.mouseNdc(), this.camera);
     const { origin, direction } = this.raycaster.ray;
     const t = marchTerrain(origin, direction, 1200);
-    if (t >= 1200) return null;
-    return origin.clone().addScaledVector(direction, t);
+    if (t < 1200) return origin.clone().addScaledVector(direction, t);
+    // Ray missed the terrain (pointing near the horizon): fall back to the plane under the camera focus
+    const planeY = groundY(this.focus.x, this.focus.z);
+    if (direction.y >= -0.02) return null;
+    const tp = (planeY - origin.y) / direction.y;
+    const p = origin.clone().addScaledVector(direction, Math.min(tp, 1500));
+    p.x = Math.max(-HALF_WORLD + 5, Math.min(HALF_WORLD - 5, p.x));
+    p.z = Math.max(-HALF_WORLD + 5, Math.min(HALF_WORLD - 5, p.z));
+    p.y = groundY(p.x, p.z);
+    return p;
   }
 
   regimentUnderMouse(army, team) {

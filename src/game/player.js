@@ -88,13 +88,14 @@ export class Player {
   get w() { return WEAPONS[this.weapon]; }
 
   // ------------------------------------------------------------------ per-frame
-  update(dt, input, army, camera, time, active) {
+  // ownsCamera is false in command mode, where the overhead camera is in charge
+  update(dt, input, army, camera, time, active, ownsCamera = true) {
     this.camera = camera;
     this.fireCd -= dt;
     if (!this.alive) {
       this.respawnT -= dt;
       if (this.respawnT <= 0) this.respawn();
-      this.updateCamera(camera, dt);
+      if (ownsCamera) this.updateCamera(camera, dt);
       return;
     }
     if (time - this.lastHurt > 4 && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + 18 * dt);
@@ -103,14 +104,24 @@ export class Player {
       const sens = this.aiming ? 0.0012 : 0.0024;
       this.yaw -= input.mouse.dx * sens;
       this.pitch -= input.mouse.dy * sens;
+      // Controller look: rate-based, slower when aiming down sights, with light aim assist
+      const pad = input.pad;
+      if (pad.connected && (pad.rx || pad.ry)) {
+        const assist = this.aimOnEnemy && !this.inVehicle ? 0.55 : 1;
+        const rate = (this.aiming ? 1.4 : 3.0) * assist;
+        // squared response curve gives fine control near the centre
+        const cx = pad.rx * Math.abs(pad.rx), cy = pad.ry * Math.abs(pad.ry);
+        this.yaw -= cx * rate * dt;
+        this.pitch -= cy * rate * 0.7 * dt;
+      }
       this.pitch = Math.max(-1.2, Math.min(0.9, this.pitch));
       if (input.hit('KeyF')) this.toggleVehicle();
     }
 
     if (this.inVehicle) this.driveSUV(dt, input, army, active);
     else this.walk(dt, input, active);
-    this.updateCamera(camera, dt);
-    this.computeAim(army);
+    if (ownsCamera) this.updateCamera(camera, dt);
+    if (ownsCamera) this.computeAim(army);
     if (active && !this.inVehicle) this.handleWeapons(dt, input, army, time);
     else this.aiming = false;
     this.updateGrenades(dt, army);
@@ -134,12 +145,19 @@ export class Player {
       if (input.down('KeyS')) { mx -= f.x; mz -= f.z; }
       if (input.down('KeyA')) { mx += r.x * -1; mz += r.z * -1; }
       if (input.down('KeyD')) { mx += r.x; mz += r.z; }
+      // Controller left stick (analog: partial tilt walks slower)
+      const pad = input.pad;
+      if (pad.connected && (pad.lx || pad.ly)) {
+        mx += f.x * -pad.ly + r.x * pad.lx;
+        mz += f.z * -pad.ly + r.z * pad.lx;
+      }
     }
     const l = Math.hypot(mx, mz);
+    const mag = Math.min(1, l);
     const sprint = active && input.down('ShiftLeft') && !this.aiming;
     const speed = this.aiming ? 3.2 : sprint ? 9 : 5.5;
     if (l > 0) {
-      const nx = this.pos.x + mx / l * speed * dt, nz = this.pos.z + mz / l * speed * dt;
+      const nx = this.pos.x + mx / l * speed * mag * dt, nz = this.pos.z + mz / l * speed * mag * dt;
       const lim = HALF_WORLD - 6;
       if (!inRiver(nx, nz) && Math.abs(nx) < lim && Math.abs(nz) < lim) { this.pos.x = nx; this.pos.z = nz; }
       this.walkPhase += dt * speed * 1.6;
@@ -178,10 +196,18 @@ export class Player {
       if (input.down('KeyS')) throttle -= 1;
       if (input.down('KeyA')) steer += 1;
       if (input.down('KeyD')) steer -= 1;
+      // Controller: RT accelerate, LT brake / reverse, left stick steer
+      const pad = input.pad;
+      if (pad.connected) {
+        throttle += pad.rt - pad.lt;
+        steer -= pad.lx;
+        throttle = Math.max(-1, Math.min(1, throttle));
+        steer = Math.max(-1, Math.min(1, steer));
+      }
     }
     const maxF = 26, maxR = -8;
-    if (throttle > 0) suv.speed += (suv.speed < 0 ? 30 : 11) * dt;
-    else if (throttle < 0) suv.speed -= (suv.speed > 0 ? 30 : 8) * dt;
+    if (throttle > 0.05) suv.speed += (suv.speed < 0 ? 30 : 11) * throttle * dt;
+    else if (throttle < -0.05) suv.speed -= (suv.speed > 0 ? 30 : 8) * -throttle * dt;
     else suv.speed *= Math.exp(-dt * 0.8);
     suv.speed = Math.max(maxR, Math.min(maxF, suv.speed));
     suv.heading += steer * dt * Math.min(1, Math.abs(suv.speed) / 6) * 1.4 * Math.sign(suv.speed || 1);
@@ -210,6 +236,7 @@ export class Player {
       const cx = suv.pos.x + fx * ahead, cz = suv.pos.z + fz * ahead;
       for (const i of army.nearby(cx, cz, 2.6, 1)) {
         this.hits.push(i, 60 * Math.abs(suv.speed));
+        this.onRumble?.(0.5, 0.3, 120);
         this.fx.blood(army.px[i], army.py[i] + 1, army.pz[i], 12);
         suv.speed *= army.typeOf[i] === 3 ? 0.75 : 0.95;
       }
@@ -248,6 +275,7 @@ export class Player {
     const o = cam.position;
     const tTerrain = marchTerrain(o, dir, 500);
     const hit = army.raycast(o.x, o.y, o.z, dir.x, dir.y, dir.z, tTerrain);
+    this.aimOnEnemy = !!hit && hit.t < 150;
     const t = hit ? hit.t : tTerrain;
     this.aimPoint.copy(o).addScaledVector(dir, t);
     this.aimDir = dir;
@@ -305,11 +333,13 @@ export class Player {
       this.fx.muzzle(muzzle, base, true);
       this.audio.launcher();
       this.camShake = 0.3;
+      this.onRumble?.(0.6, 0.4, 150);
       return;
     }
     w.pellets > 1 ? this.audio.shotgun() : this.audio.rifle();
     this.fx.muzzle(muzzle, base, w.pellets > 1);
     this.camShake = w.pellets > 1 ? 0.6 : 0.15;
+    if (w.pellets > 1) this.onRumble?.(0.8, 0.6, 160); else this.onRumble?.(0.15, 0.35, 50);
     // Recoil
     this.pitch += w.pellets > 1 ? 0.05 : 0.006;
     this.yaw += (Math.random() - 0.5) * 0.004;
@@ -381,6 +411,7 @@ export class Player {
     this.hp -= dmg;
     this.lastHurt = time;
     this.audio.hurt();
+    this.onRumble?.(0.5, 0.2, 180);
     if (this.hp <= 0) {
       this.alive = false;
       this.respawnT = 8;

@@ -41,6 +41,38 @@ npm run dev        # http://localhost:5173
 | Space | tactical pause; time runs at 30% in command view anyway |
 | WASD, Q/E, wheel | pan, rotate, zoom |
 
+### Xbox controller
+
+Plug in or pair an Xbox controller (or any controller the browser lists as "standard") and press any
+button. On-screen hints switch to controller buttons while you're using it. Supports rumble in
+Chrome and Edge.
+
+| Field | |
+|---|---|
+| Left stick / right stick | move (analog) / look, with light aim assist |
+| LT / RT | aim down sights / fire |
+| LB / RB, D-pad ▲ ▼ | previous / next weapon, rifle / grenade launcher |
+| X · Y | reload · enter/exit SUV |
+| hold A or click L3 | sprint |
+| D-pad ◀ / ▶ | airstrike / gunship |
+| In the SUV | RT gas, LT brake/reverse, left stick steer, B handbrake |
+| View | command mode |
+
+| Command | |
+|---|---|
+| Left stick / right stick | pan camera / move cursor |
+| LT / RT | zoom out / in |
+| A (hold and move to box-select) · B | select · move or attack order (B also cancels building) |
+| LB / RB · L3 · R3 | cycle regiments · select all · hand back to AI |
+| X · Y · D-pad ▲ ▼ | hold · palisade · advance · retreat |
+| D-pad ◀ / ▶ | airstrike / gunship at the cursor |
+| Menu · View | pause · back to the field |
+
+### Troubleshooting
+
+`EPERM: operation not permitted ... node_modules\.vite-temp` on Windows: update to the latest code
+(the scripts now load the config without writing that temp file), or run `npx vite --configLoader native`.
+
 ## Tests and benchmark
 
 ```bash
