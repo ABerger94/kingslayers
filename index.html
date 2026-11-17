@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kingslayers — Shrewsbury 1403</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="crosshair"><span></span><span></span><span></span><span></span></div>
+    <div id="hitmarker"></div>
+    <div id="vignette"></div>
+
+    <div id="topbar">
+      <div class="side rebel"><b>Rebels</b><div class="bar"><i id="rebelBar"></i></div><small id="rebelCount"></small></div>
+      <div id="clock">00:00</div>
+      <div class="side crown"><small id="crownCount"></small><div class="bar"><i id="crownBar"></i></div><b>Royal Army</b></div>
+    </div>
+    <div id="heroes"></div>
+
+    <div id="feed"></div>
+    <div id="banner"></div>
+
+    <div id="playerPanel">
+      <div id="hpRow"><span>OPERATIVE</span><div class="bar hp"><i id="hpBar"></i></div></div>
+      <div id="weaponRow"><span id="weaponName"></span><span id="ammo"></span></div>
+      <div id="weaponSlots"></div>
+    </div>
+    <div id="abilities"></div>
+
+    <canvas id="minimap" width="200" height="200"></canvas>
+    <div id="modeTag">FIELD — <kbd>Tab</kbd> command view</div>
+
+    <div id="rtsPanel" class="hidden">
+      <div id="regList"></div>
+      <div id="selInfo"></div>
+      <div id="orderButtons">
+        <button data-cmd="hold" title="Hold position (H)">Hold <kbd>H</kbd></button>
+        <button data-cmd="advance" title="Attack-move to the next right-click (A)">Advance <kbd>A</kbd></button>
+        <button data-cmd="retreat" title="Fall back toward our lines (R)">Retreat <kbd>R</kbd></button>
+        <button data-cmd="auto" title="Hand back to the AI general (G)">AI Control <kbd>G</kbd></button>
+        <button data-cmd="build" title="Build a palisade: click start, click end (B)">Palisade <kbd>B</kbd></button>
+      </div>
+      <div id="supplies"></div>
+    </div>
+    <div id="selbox"></div>
+    <div id="pauseTag" class="hidden">TACTICAL PAUSE — <kbd>Space</kbd> to resume</div>
+  </div>
+
+  <div id="intro" class="overlay">
+    <div class="card">
+      <p class="kicker">Operation KINGSLAYER · Insertion: Shropshire, 21 July 1403</p>
+      <h1>KINGSLAYERS</h1>
+      <p>
+        In 2031 a collapse cascade traced back through six centuries of history converged on one morning:
+        the Battle of Shrewsbury. Harry "Hotspur" Percy rides against King Henry IV with the Welsh rebel
+        Owain Glyndŵr's army still days away. History says Hotspur dies here and the rebellion withers.
+      </p>
+      <p>
+        You have been sent back with everything the chrono-lift could carry. <b>Keep Hotspur alive. Break the
+        royal army or kill the King.</b> Hold out long enough and Glyndŵr may yet arrive.
+      </p>
+      <div class="cols">
+        <div>
+          <h3>Field (shooter)</h3>
+          <ul>
+            <li><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Mouse</kbd> aim</li>
+            <li><kbd>LMB</kbd> fire · <kbd>RMB</kbd> aim down sights · <kbd>R</kbd> reload</li>
+            <li><kbd>1</kbd> rifle · <kbd>2</kbd> shotgun · <kbd>3</kbd> grenade launcher</li>
+            <li><kbd>Z</kbd> airstrike at aim point · <kbd>X</kbd> gunship support</li>
+            <li><kbd>F</kbd> enter / exit the armoured SUV</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Command (strategy)</h3>
+          <ul>
+            <li><kbd>Tab</kbd> switch to command view (time slows)</li>
+            <li><kbd>LMB</kbd> / drag select your regiments</li>
+            <li><kbd>RMB</kbd> ground: move · <kbd>RMB</kbd> enemy: attack</li>
+            <li><kbd>H</kbd> hold · <kbd>A</kbd> advance · <kbd>R</kbd> retreat · <kbd>G</kbd> hand back to AI</li>
+            <li><kbd>B</kbd> palisade · <kbd>Space</kbd> tactical pause · <kbd>WASD</kbd>/wheel camera</li>
+          </ul>
+        </div>
+      </div>
+      <button id="startBtn">Deploy</button>
+      <p id="loading" class="hidden">Raising armies…</p>
+    </div>
+  </div>
+
+  <div id="outcome" class="overlay hidden">
+    <div class="card">
+      <h1 id="outcomeTitle"></h1>
+      <p id="outcomeText"></p>
+      <p id="outcomeStats"></p>
+      <button onclick="location.reload()">Fight again</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/game/main.js"></script>
+</body>
+</html>
