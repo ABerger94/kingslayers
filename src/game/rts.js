@@ -4,6 +4,7 @@ import { groundY } from './world.js';
 import { marchTerrain } from './player.js';
 import { TEAM_REBEL, TEAM_CROWN, TYPE_NAMES, ORDER_NAMES, ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT, HALF_WORLD, PALISADE_COST_PER_M } from '../shared/constants.js';
 import { TEAM_COLORS } from './army.js';
+import { WALL_H } from '../shared/castle.js';
 
 function makeFlagTexture(color) {
   const c = document.createElement('canvas');
@@ -117,7 +118,7 @@ export class Rts {
       b.ring.visible = present && this.selected.has(r.id) && this.active;
       if (!present) continue;
       const x = r.cx, z = r.cz;
-      b.g.position.set(x, groundY(x, z), z);
+      b.g.position.set(x, groundY(x, z) + (r.garrison ? WALL_H : 0), z);
       b.flag.rotation.y = Math.sin(time * 2 + r.id) * 0.3 + r.facing;
       b.sprite.visible = this.active;
       if (this.active) {

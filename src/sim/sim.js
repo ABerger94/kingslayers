@@ -9,13 +9,14 @@ import {
   ST_IDLE, ST_MOVE, ST_FIGHT, ST_SHOOT, ST_ROUT, ST_DEAD,
   SNAP_STRIDE, ARROW_STRIDE, MAX_ARROWS,
   ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT,
-  HALF_WORLD, PALISADE_COST_PER_M, NAV_CELL,
+  HALF_WORLD, PALISADE_COST_PER_M, NAV_CELL, NAV_DIM,
 } from '../shared/constants.js';
 import { heightAt, inPeaField } from '../shared/terrain.js';
 import { SpatialGrid } from './grid.js';
 import { NavGrid } from './flowfield.js';
 import { makeRng } from './rng.js';
 import { Commander } from './commander.js';
+import { WALL_H, CELL_WALL, CELL_GATE, CELL_KEEP, KEEP_H, GATE_HP, castleCells } from '../shared/castle.js';
 
 const GRAVITY = 9.81;
 const ARROW_SPEED_H = 46; // horizontal arrow speed
@@ -24,6 +25,8 @@ const ROUT_AT = 0.2;
 const RALLY_AT = 0.55;
 const HOME_Z = [-205, 300]; // where each team flees to
 const FORT_HP = 400;
+const FLING_TIME = 0.7; // how long bodies thrown by explosions keep flying
+const GATE_HACK = 0.25; // how quickly soldiers batter down the castle gate
 
 export class Regiment {
   constructor(id, team, type, name) {
@@ -46,6 +49,8 @@ export class Regiment {
     this.heroIdx = -1;
     this.lastOrderTime = -999;
     this.moving = false;
+    this.garrison = false; // stands on the castle walls
+    this.inCastle = false; // stationed in the castle courtyard
   }
 }
 
@@ -68,6 +73,12 @@ export class Sim {
     this.commander = [new Commander(this, TEAM_REBEL), new Commander(this, TEAM_CROWN)];
     this.turncoats = null;
     this._dir = { x: 0, z: 0 };
+    this.flying = []; // [unit, timeLeft] bodies thrown by explosions
+    this.assault = false; // rebels have broken the field army and are storming the castle
+    this.castleOpen = false; // a wall or the gate has been destroyed
+    this.objectives = { field: 1, gate: 1, open: false, assault: false };
+    this.gateCells = castleCells().filter((c) => c.type === CELL_GATE).map((c) => c.c);
+    this.gateMaxHp = this.gateCells.length * GATE_HP;
   }
 
   allocate(capacity) {
@@ -81,6 +92,7 @@ export class Sim {
     this.slotX = F(); this.slotZ = F(); this.anim = F(); this.thinkT = F();
     this.type = U(); this.team = U(); this.state = U(); this.alive = U(); this.fled = U();
     this.reg = I(); this.target = I();
+    this.elev = F(); this.garrison = U(); this.gcell = I(); this.flung = U();
     this.grid = new SpatialGrid(capacity, 4);
     this.arrows = new Float32Array(MAX_ARROWS * ARROW_STRIDE);
     this.arrowTeam = new Uint8Array(MAX_ARROWS);
@@ -107,6 +119,7 @@ export class Sim {
     this.bowCd[i] = this.rng() * 3;
     this.type[i] = type; this.team[i] = reg.team; this.state[i] = ST_IDLE;
     this.alive[i] = 1; this.fled[i] = 0;
+    this.elev[i] = 0; this.garrison[i] = 0; this.gcell[i] = -1; this.flung[i] = 0;
     this.reg[i] = reg.id; this.target[i] = -1;
     this.thinkT[i] = this.rng() * 0.5;
     this.anim[i] = this.rng() * 10;
@@ -130,6 +143,30 @@ export class Sim {
     this.computeSlots(reg);
     for (const i of reg.members) { this.x[i] = this.slotX[i]; this.z[i] = this.slotZ[i]; }
     if (opts.auto === false) reg.auto = false;
+    return reg;
+  }
+
+  // Archers stationed on the castle walls. They never move or rout; they fall if their wall section does.
+  spawnGarrison(team, name, spots, perCell) {
+    const reg = this.addRegiment(team, ARCHER, name);
+    reg.garrison = true;
+    reg.auto = false;
+    reg.facing = Math.PI;
+    for (const cell of spots) {
+      const cx = cell.cx * NAV_CELL - HALF_WORLD + NAV_CELL / 2, cz = cell.cz * NAV_CELL - HALF_WORLD + NAV_CELL / 2;
+      for (let k = 0; k < perCell; k++) {
+        const i = this.spawn(reg, ARCHER, cx + this.rng.range(-1.4, 1.4), cz + this.rng.range(-1.2, 1.2));
+        this.elev[i] = WALL_H;
+        this.garrison[i] = 1;
+        this.gcell[i] = cell.c;
+        this.morale[i] = 1.2;
+        this.heading[i] = Math.PI;
+      }
+    }
+    let sx = 0, sz = 0;
+    for (const i of reg.members) { sx += this.x[i]; sz += this.z[i]; }
+    reg.anchorX = reg.cx = sx / reg.members.length;
+    reg.anchorZ = reg.cz = sz / reg.members.length;
     return reg;
   }
 
@@ -208,15 +245,38 @@ export class Sim {
     return { ok: true, cells: placed.length };
   }
 
-  // Damage applied by the player's modern weapons.
+  // Damage applied by the player (guns, vehicles, the gunship, or the sword).
   damageUnit(i, dmg, source = 'gun') {
     if (!this.alive[i]) return;
     this.hp[i] -= dmg;
-    if (this.hp[i] <= 0) this.kill(i, source === 'player' || source === 'gun' || source === 'explosion' ? 'player' : 'melee');
+    if (source === 'sword') {
+      if (this.hp[i] <= 0) {
+        this.kill(i, 'sword');
+        // A champion cutting men down in front of them steels the rebels' nerve
+        this.inspire(this.x[i], this.z[i], 22, 0.04);
+        return;
+      }
+      // Knock back and stagger
+      const dx = this.x[i] - this.player.x, dz = this.z[i] - this.player.z, d = Math.hypot(dx, dz) + 0.01;
+      const push = this.type[i] === CAVALRY ? 2 : this.type[i] === HERO ? 1.5 : 6;
+      this.vx[i] += dx / d * push; this.vz[i] += dz / d * push;
+      this.cooldown[i] = Math.max(this.cooldown[i], 0.9);
+      this.morale[i] -= 0.04;
+      return;
+    }
+    if (this.hp[i] <= 0) this.kill(i, 'player');
     else if (source === 'gun') this.shockArea(this.x[i], this.z[i], 6, 0.03, this.team[i]);
   }
 
-  explode(x, z, r, dmg) {
+  inspire(x, z, r, amount) {
+    this.grid.query(x, z, r, (j) => {
+      if (this.alive[j] && this.team[j] === TEAM_REBEL) this.morale[j] = Math.min(1.3, this.morale[j] + amount);
+      return false;
+    });
+  }
+
+  // structDmg: damage to walls, gates and palisades (defaults to a fraction of the blast)
+  explode(x, z, r, dmg, structDmg = dmg * 0.6) {
     const R = r * 2.8;
     this.grid.query(x, z, R, (j) => {
       if (!this.alive[j]) return false;
@@ -232,13 +292,59 @@ export class Sim {
         // Blast pushes survivors away
         const nx = (this.x[j] - x) / (d + 0.01), nz = (this.z[j] - z) / (d + 0.01);
         this.vx[j] += nx * 12 * k; this.vz[j] += nz * 12 * k;
-        if (this.hp[j] <= 0) this.kill(j, 'player');
+        if (this.hp[j] <= 0) {
+          // Bodies are thrown by the blast
+          this.vx[j] += nx * 10 * k; this.vz[j] += nz * 10 * k;
+          this.kill(j, 'explosion');
+        }
       }
       return false;
     });
-    // Fortifications are destroyed by explosions too
-    const c0 = this.nav.cellIndex(x, z);
-    if (this.nav.blocked[c0] === 2) { this.nav.clearFort(c0); this.events.push({ t: 'fortGone', cell: c0 }); }
+    // Structures: palisades, castle walls and the gate
+    const nav = this.nav, reach = r + 2.5;
+    const c0x = Math.floor((x + HALF_WORLD) / NAV_CELL), c0z = Math.floor((z + HALF_WORLD) / NAV_CELL);
+    const span = Math.ceil(reach / NAV_CELL);
+    for (let cz = c0z - span; cz <= c0z + span; cz++) {
+      for (let cx = c0x - span; cx <= c0x + span; cx++) {
+        if (cx < 0 || cz < 0 || cx >= NAV_DIM || cz >= NAV_DIM) continue;
+        const c = cz * NAV_DIM + cx;
+        if (!nav.destructible(c)) continue;
+        const ccx = cx * NAV_CELL - HALF_WORLD + NAV_CELL / 2, ccz = cz * NAV_CELL - HALF_WORLD + NAV_CELL / 2;
+        const d = Math.max(0, Math.hypot(ccx - x, ccz - z) - NAV_CELL * 0.5);
+        if (d > reach) continue;
+        nav.fortHp[c] -= structDmg * (1 - d / reach * 0.7);
+        if (nav.fortHp[c] <= 0) this.destroyCell(c);
+      }
+    }
+  }
+
+  // A wall section, the gate or a palisade has been destroyed
+  destroyCell(c) {
+    const type = this.nav.clearCell(c);
+    if (!type) return;
+    this.events.push({ t: 'cellGone', cell: c, type });
+    if (type === CELL_WALL || type === CELL_GATE) {
+      // Archers standing on that section fall with it
+      for (let i = 0; i < this.n; i++) {
+        if (this.alive[i] && this.gcell[i] === c) {
+          // knocked off the wall: they fall to the foot of the breach
+          this.garrison[i] = 0; this.elev[i] = 0;
+          this.vx[i] = (this.rng() - 0.5) * 8; this.vz[i] = -4 - this.rng() * 4;
+          this.kill(i, 'explosion');
+        }
+      }
+      if (!this.castleOpen) {
+        this.castleOpen = true;
+        this.events.push({ t: 'msg', text: type === CELL_GATE ? 'The castle gate has been smashed open!' : 'The castle wall has been breached!', big: true });
+        // Defenders (and anyone close enough to see it) are shaken; attackers take heart
+        const cx = (c % NAV_DIM) * NAV_CELL - HALF_WORLD, cz = Math.floor(c / NAV_DIM) * NAV_CELL - HALF_WORLD;
+        for (let i = 0; i < this.n; i++) {
+          if (!this.alive[i]) continue;
+          if (Math.hypot(this.x[i] - cx, this.z[i] - cz) > 120) continue;
+          if (this.team[i] === TEAM_CROWN) this.morale[i] -= 0.12; else this.morale[i] += 0.12;
+        }
+      }
+    }
   }
 
   shockArea(x, z, r, amount, team) {
@@ -255,8 +361,10 @@ export class Sim {
     this.hp[i] = 0;
     const team = this.team[i];
     this.stats.kills[1 - team]++;
-    if (cause === 'player') this.stats.playerKills++;
-    this.shockArea(this.x[i], this.z[i], 7, cause === 'player' ? 0.06 : 0.025, team);
+    const byPlayer = cause === 'player' || cause === 'explosion' || cause === 'sword';
+    if (byPlayer) this.stats.playerKills++;
+    if (cause === 'explosion') { this.flung[i] = 1; this.flying.push([i, FLING_TIME]); }
+    this.shockArea(this.x[i], this.z[i], 7, byPlayer && cause !== 'sword' ? 0.06 : 0.025, team);
     this.events.push({ t: 'death', i, x: this.x[i], z: this.z[i], cause });
     if (this.type[i] === HERO) this.onHeroDeath(i);
   }
@@ -285,6 +393,7 @@ export class Sim {
     for (const reg of this.regiments) this.updateRegiment(reg, dt);
     for (let i = 0; i < this.n; i++) if (this.alive[i]) this.think(i, dt);
     for (let i = 0; i < this.n; i++) if (this.alive[i]) this.integrate(i, dt);
+    this.updateFlying(dt);
     this.updateArrows(dt);
     this.supplies = Math.min(600, this.supplies + dt * 2.5);
     this.checkOutcome();
@@ -310,6 +419,17 @@ export class Sim {
     reg.morale = alive ? mor / alive : 0;
     if (nm > 0) { reg.cx = sx / nm; reg.cz = sz / nm; }
     if (nm === 0) { reg.moving = false; return; }
+    if (reg.garrison) {
+      // Wall archers: pick the nearest enemy block in range, never move
+      let best = STATS[ARCHER].bowRange + 20, bestId = -1;
+      for (const o of this.regiments) {
+        if (o.team === reg.team || o.alive - o.routing <= 0 || o.garrison) continue;
+        const d = Math.hypot(o.cx - reg.cx, o.cz - reg.cz);
+        if (d < best) { best = d; bestId = o.id; }
+      }
+      reg.archerTarget = bestId;
+      return;
+    }
 
     // Archers pick a regiment to loose at
     reg.archerTarget = -1;
@@ -398,7 +518,8 @@ export class Sim {
     const xi = this.x[i], zi = this.z[i], team = this.team[i];
     let best = radius * radius, bestJ = -1, bestRout = -1, bestRoutD = radius * radius;
     this.grid.query(xi, zi, radius, (j) => {
-      if (this.team[j] === team || !this.alive[j]) return false;
+      // Men on the walls can't be reached with a sword
+      if (this.team[j] === team || !this.alive[j] || this.garrison[j]) return false;
       const dx = this.x[j] - xi, dz = this.z[j] - zi;
       const d = dx * dx + dz * dz;
       if (this.state[j] === ST_ROUT) {
@@ -410,9 +531,11 @@ export class Sim {
     if (team === TEAM_CROWN && this.player.alive) {
       const dx = this.player.x - xi, dz = this.player.z - zi;
       const d = dx * dx + dz * dz;
-      if (d < best && d < radius * radius) return PLAYER;
+      if (d < best && d < radius * radius && this.nav.clearLine(xi, zi, this.player.x, this.player.z)) return PLAYER;
     }
-    if (bestJ < 0 && (this.type[i] === CAVALRY || bestRoutD < 25)) return bestRout; // ride down fleeing men
+    if (bestJ < 0 && (this.type[i] === CAVALRY || bestRoutD < 25)) bestJ = bestRout; // ride down fleeing men
+    // Don't charge at someone on the other side of a wall
+    if (bestJ >= 0 && best > 9 && !this.nav.clearLine(xi, zi, this.x[bestJ], this.z[bestJ])) return -1;
     return bestJ;
   }
 
@@ -432,6 +555,7 @@ export class Sim {
       this.updateMorale(i, reg, 0.5);
     }
 
+    if (this.garrison[i]) { this.garrisonBehaviour(i, reg, dt); return; }
     if (this.state[i] === ST_ROUT) {
       this.routBehaviour(i, dt, doThink);
       return;
@@ -530,6 +654,32 @@ export class Sim {
     this.vx[i] += (dvx - this.vx[i]) * k;
     this.vz[i] += (dvz - this.vz[i]) * k;
     if (fighting) { this.vx[i] *= 0.6; this.vz[i] *= 0.6; }
+  }
+
+  garrisonBehaviour(i, reg, dt) {
+    this.vx[i] = 0; this.vz[i] = 0;
+    if (this.morale[i] < 0.5) this.morale[i] = 0.5; // safe behind the battlements
+    const tr = reg.archerTarget >= 0 ? this.regiments[reg.archerTarget] : null;
+    if (!tr) { this.state[i] = ST_IDLE; return; }
+    this.state[i] = ST_SHOOT;
+    this.heading[i] = Math.atan2(tr.cx - this.x[i], tr.cz - this.z[i]);
+    this.bowCd[i] -= dt;
+    if (this.bowCd[i] <= 0) {
+      this.bowCd[i] = STATS[ARCHER].bowCd * this.rng.range(0.8, 1.35);
+      this.loose(i, tr);
+    }
+  }
+
+  // Bodies thrown by explosions slide/fly for a moment
+  updateFlying(dt) {
+    for (let k = this.flying.length - 1; k >= 0; k--) {
+      const f = this.flying[k];
+      const i = f[0];
+      f[1] -= dt;
+      this.x[i] += this.vx[i] * dt; this.z[i] += this.vz[i] * dt;
+      this.vx[i] *= 0.92; this.vz[i] *= 0.92;
+      if (f[1] <= 0) this.flying.splice(k, 1);
+    }
   }
 
   updateMorale(i, reg, dt) {
@@ -673,8 +823,8 @@ export class Sim {
     tx += this.rng.gauss() * spread; tz += this.rng.gauss() * spread;
     d = Math.hypot(tx - sx, tz - sz);
     const t = Math.max(0.3, d / ARROW_SPEED_H);
-    const sy = heightAt(sx, sz) + 1.6;
-    const ty = heightAt(tx, tz) + 1.2;
+    const sy = heightAt(sx, sz) + 1.6 + this.elev[i];
+    const ty = heightAt(tx, tz) + 1.2 + (tgt >= 0 ? this.elev[tgt] : 0);
     const k = this.arrowCount++ * ARROW_STRIDE;
     const a = this.arrows;
     a[k] = sx; a[k + 1] = sy; a[k + 2] = sz;
@@ -725,11 +875,21 @@ export class Sim {
         }
       }
       const gy = heightAt(x, z);
-      if (y < gy + 1.8 && a[k + 4] < 0) {
-        // Descending through head height: check soldiers here
+      // Arrows break against castle stone
+      const blk = this.nav.blocked[this.nav.cellIndex(x, z)];
+      // (above the wall-walk arrows fly on over the battlements, where they can hit the garrison)
+      if (blk >= CELL_WALL && blk <= CELL_KEEP && y < gy + (blk === CELL_KEEP ? KEEP_H : WALL_H + 0.2)) {
+        a[k + 3] = a[k + 4] = a[k + 5] = 0;
+        this.arrowLife[n] = 3;
+        continue;
+      }
+      if (y < gy + 1.8 + WALL_H && a[k + 4] < 0) {
+        // Descending through head height (or wall-walk height): check soldiers here
         let hit = -1;
         this.grid.query(x, z, 1.2, (j) => {
           if (!this.alive[j] || this.team[j] === team) return false;
+          const base = gy + this.elev[j];
+          if (y < base || y > base + 1.9) return false;
           const r = STATS[this.type[j]].radius + 0.15;
           const dx = this.x[j] - x, dz = this.z[j] - z;
           if (dx * dx + dz * dz < r * r) { hit = j; return true; }
@@ -752,6 +912,7 @@ export class Sim {
   }
 
   integrate(i, dt) {
+    if (this.garrison[i]) return;
     const r = STATS[this.type[i]].radius;
     const xi = this.x[i], zi = this.z[i];
     // Separation from neighbours
@@ -779,9 +940,16 @@ export class Sim {
     const c = nav.cellIndex(nx, nz);
     if (nav.blocked[c]) {
       // Hack at enemy fortifications that are in the way
-      if (nav.blocked[c] === 2 && this.team[i] === TEAM_CROWN && this.state[i] !== ST_ROUT) {
-        nav.fortHp[c] -= STATS[this.type[i]].dmg * dt * 0.6;
-        if (nav.fortHp[c] <= 0) { nav.clearFort(c); this.events.push({ t: 'fortGone', cell: c }); }
+      const b = nav.blocked[c];
+      if (this.state[i] !== ST_ROUT) {
+        // Royal soldiers tear down rebel palisades; rebels batter the castle gate
+        let rate = 0;
+        if (b === 2 && this.team[i] === TEAM_CROWN) rate = 0.6;
+        else if (b === CELL_GATE && this.team[i] === TEAM_REBEL) rate = GATE_HACK;
+        if (rate) {
+          nav.fortHp[c] -= STATS[this.type[i]].dmg * dt * rate;
+          if (nav.fortHp[c] <= 0) this.destroyCell(c);
+        }
       }
       if (!nav.blocked[nav.cellIndex(nx, zi)]) nz = zi;
       else if (!nav.blocked[nav.cellIndex(xi, nz)]) nx = xi;
@@ -800,12 +968,32 @@ export class Sim {
       alive[r.team] += r.alive - r.routing;
     }
     this.teamStrength = [alive[0] / Math.max(1, initial[0]), alive[1] / Math.max(1, initial[1])];
+
+    // Phase tracking: break the royal field army, then storm the castle
+    let fieldAlive = 0, fieldInitial = 0;
+    for (const r of this.regiments) {
+      if (r.team !== TEAM_CROWN || r.garrison || r.inCastle) continue;
+      fieldInitial += r.initial;
+      fieldAlive += r.alive - r.routing;
+    }
+    const field = fieldAlive / Math.max(1, fieldInitial);
+    let gateHp = 0;
+    for (const c of this.gateCells || []) gateHp += Math.max(0, this.nav.fortHp[c]);
+    this.objectives = {
+      field, assault: this.assault, open: this.castleOpen,
+      gate: this.gateCells ? gateHp / (this.gateMaxHp || 1) : 1,
+    };
+    if (!this.assault && this.time > 20 && field < 0.3) {
+      this.assault = true;
+      this.events.push({ t: 'msg', text: 'The royal field army is broken! Storm the castle and kill the King!', big: true });
+      this.events.push({ t: 'phase', phase: 'assault' });
+    }
+
     const hot = this.heroes['Harry Hotspur'];
     const king = this.heroes['King Henry IV'];
     if (hot !== undefined && !this.alive[hot]) this.finish('defeat', 'Hotspur has fallen. History repeats itself.');
     else if (king !== undefined && !this.alive[king]) this.finish('victory', 'King Henry IV is dead. The future is rewritten.');
-    else if (this.time > 20 && this.teamStrength[1] < 0.2) this.finish('victory', 'The royal army has broken and fled the field.');
-    else if (this.time > 20 && this.teamStrength[0] < 0.15) this.finish('defeat', 'The rebel army has been destroyed.');
+    else if (this.time > 20 && this.teamStrength[0] < 0.12) this.finish('defeat', 'The rebel army has been destroyed.');
   }
 
   finish(outcome, text) {
@@ -820,8 +1008,9 @@ export class Sim {
     for (let i = 0; i < n; i++) {
       const k = i * SNAP_STRIDE;
       s[k] = this.x[i]; s[k + 1] = this.z[i]; s[k + 2] = this.heading[i];
-      s[k + 3] = this.type[i] | (this.team[i] << 3) | (this.state[i] << 4);
-      s[k + 4] = this.fled[i] ? -1 : this.hp[i] / this.maxHp[i];
+      s[k + 3] = this.type[i] | (this.team[i] << 3) | (this.state[i] << 4) | (this.garrison[i] << 7);
+      // hp fraction; -1 = fled the field, -2 = killed by an explosion (body thrown)
+      s[k + 4] = this.fled[i] ? -1 : this.flung[i] ? -2 : this.hp[i] / this.maxHp[i];
       s[k + 5] = Math.hypot(this.vx[i], this.vz[i]);
     }
     return s;
@@ -839,7 +1028,7 @@ export class Sim {
       alive: r.alive, routing: r.routing, initial: r.initial,
       morale: r.morale, x: r.anchorX, z: r.anchorZ, cx: r.cx, cz: r.cz, facing: r.facing,
       order: r.order.type, ox: r.order.x, oz: r.order.z, target: r.order.target, auto: r.auto,
-      hero: r.heroIdx,
+      hero: r.heroIdx, garrison: r.garrison, inCastle: r.inCastle,
     }));
   }
 

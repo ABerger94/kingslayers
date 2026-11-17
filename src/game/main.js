@@ -9,6 +9,7 @@ import { Player } from './player.js';
 import { Support } from './support.js';
 import { Rts } from './rts.js';
 import { Hud } from './hud.js';
+import { CastleView } from './castleView.js';
 import { BTN, applyFieldBindings, applyCommandBindings, releasePadButtons } from './gamepad.js';
 import { SNAP_STRIDE, TEAM_REBEL, TEAM_CROWN, ST_DEAD, ST_ROUT } from '../shared/constants.js';
 
@@ -27,12 +28,15 @@ addEventListener('resize', () => {
 });
 
 const { scene, sun } = createWorld(renderer);
+sun.intensity = 2.0;
+sun.color.set(0xffe2b8); // late-afternoon light
 const forts = createFortRenderer(scene);
 const army = new ArmyRenderer(scene);
 const fx = new Fx(scene);
 const audio = new Audio();
 const input = new Input(canvas);
 const hud = new Hud();
+const castle = new CastleView(scene, fx, audio);
 
 const worker = new Worker(new URL('../sim/worker.js', import.meta.url), { type: 'module' });
 const send = (m) => worker.postMessage(m);
@@ -62,8 +66,10 @@ for (const b of hud.el.orderButtons.children) {
 // ------------------------------------------------------------------ simulation state mirror
 const state = {
   started: false, time: 0, strength: [1, 1], supplies: 0, regiments: [], stats: null,
-  lastSnap: null, outcome: null, simMs: 0, heroIdx: [],
+  lastSnap: null, outcome: null, simMs: 0, heroIdx: [], obj: null,
+  streak: 0, streakT: 0,
 };
+const DAMAGE_TAKEN = { squire: 0.6, knight: 1, kingslayer: 1.4 };
 
 worker.onmessage = (e) => {
   const m = e.data;
@@ -80,6 +86,7 @@ worker.onmessage = (e) => {
   state.supplies = m.supplies;
   state.stats = m.stats;
   state.simMs = m.simMs;
+  if (m.obj) state.obj = m.obj;
   if (m.regiments) { state.regiments = m.regiments; rts.setRegiments(m.regiments); }
   for (const ev of m.events) handleEvent(ev);
 };
@@ -91,10 +98,16 @@ function handleEvent(ev) {
     case 'death': {
       const d = Math.hypot(camera.position.x - ev.x, camera.position.z - ev.z);
       if (d < 150 && ev.cause !== 'player') fx.blood(ev.x, groundY(ev.x, ev.z) + 1.1, ev.z, 4);
+      if (ev.cause === 'player' || ev.cause === 'explosion' || ev.cause === 'sword') {
+        // kills in quick succession build a streak
+        state.streak = state.streakT > 0 ? state.streak + 1 : 1;
+        state.streakT = 2.5;
+        hud.streak(state.streak);
+      }
       break;
     }
     case 'hitPlayer':
-      player.hurt(ev.dmg, state.time, ev.kind);
+      player.hurt(ev.dmg, state.time, ev.kind, ev.x, ev.z);
       break;
     case 'heroDeath':
       hud.bigBanner(`${ev.name} has fallen!`);
@@ -106,7 +119,12 @@ function handleEvent(ev) {
       break;
     }
     case 'forts': forts.add(ev.cells); if (ev.cells.length) hud.message(`Palisade raised (${ev.cells.length * 4} m).`); break;
-    case 'fortGone': forts.remove(ev.cell); break;
+    case 'cellGone':
+      if (!forts.remove(ev.cell)) castle.destroy(ev.cell, ev.type, camera.position);
+      break;
+    case 'phase':
+      audio.fanfare();
+      break;
     case 'msg': hud.message(ev.text); if (ev.big) hud.bigBanner(ev.text, 5000); audio.radio(); break;
     case 'newReg': break;
     case 'defect': break;
@@ -128,13 +146,16 @@ function showOutcome(ev) {
       : '';
   }, 2500);
   hud.bigBanner(ev.outcome === 'victory' ? 'VICTORY' : 'DEFEAT', 6000);
+  if (ev.outcome === 'victory') audio.fanfare();
 }
 
 // ------------------------------------------------------------------ start
 document.getElementById('startBtn').addEventListener('click', () => {
   audio.init();
   document.getElementById('loading').classList.remove('hidden');
-  send({ t: 'start', seed: 1403 });
+  const difficulty = document.querySelector('input[name="diff"]:checked')?.value || 'knight';
+  player.damageTaken = DAMAGE_TAKEN[difficulty] ?? 1;
+  send({ t: 'start', seed: 1403, difficulty });
   setTimeout(() => {
     document.getElementById('intro').classList.add('hidden');
     hud.el.hud.classList.remove('hidden');
@@ -234,6 +255,10 @@ function frame() {
 
   // Tell the simulation where we are and who we shot
   send({ t: 'player', p: player.simState() });
+  if (player.swordHits.length) {
+    send({ t: 'damage', hits: player.swordHits, source: 'sword' });
+    player.swordHits = [];
+  }
   if (player.hits.length) {
     send({ t: 'damage', hits: player.hits, source: 'gun' });
     player.hits = [];
@@ -241,6 +266,8 @@ function frame() {
 
   army.update(now, camera.position);
   rts.updateBanners(now / 1000);
+  castle.update(now / 1000);
+  state.streakT -= realDt;
 
   // Camera shake from explosions and recoil
   const shake = fx.shake + player.camShake * 0.3;
@@ -252,16 +279,18 @@ function frame() {
 
   // Keep the shadow camera around the player
   const focus = rts.active ? rts.focus : player.pos;
-  sun.position.set(focus.x - 80, groundY(focus.x, focus.z) + 160, focus.z - 60);
+  sun.position.set(focus.x - 110, groundY(focus.x, focus.z) + 90, focus.z - 140);
   sun.target.position.set(focus.x, groundY(focus.x, focus.z), focus.z);
 
   hudTimer -= realDt;
   if (hudTimer <= 0) {
     hudTimer = 0.1;
+    const heroes = heroesInfo();
     hud.update({
-      time: state.time, strength: state.strength, regiments: state.regiments, heroes: heroesInfo(),
+      time: state.time, strength: state.strength, regiments: state.regiments, heroes,
       player, support, supplies: state.supplies, rtsActive: rts.active, rts, counts: counts(),
     });
+    hud.updateObjectives(state.obj, heroes);
     audio.setIntensity(Math.min(1, (state.stats ? (state.stats.kills[0] + state.stats.kills[1]) : 0) / 300));
   }
   camera.getWorldDirection(camDir);
@@ -273,4 +302,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Expose for debugging in the console
-window.__game = { state, player, army, rts, support, send };
+window.__game = { state, player, army, rts, support, send, castle, input };

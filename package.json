@@ -9,7 +9,7 @@
     "build": "vite build --configLoader native",
     "preview": "vite preview --configLoader native",
     "bench": "node tools/headless-battle.mjs",
-    "test": "node tools/headless-battle.mjs --quick"
+    "test": "node tools/headless-battle.mjs --quick && node tools/headless-battle.mjs --siege"
   },
   "dependencies": {
     "three": "^0.187.0"

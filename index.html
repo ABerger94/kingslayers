@@ -20,6 +20,8 @@
       <div class="side crown"><small id="crownCount"></small><div class="bar"><i id="crownBar"></i></div><b>Royal Army</b></div>
     </div>
     <div id="heroes"></div>
+    <div id="objectives"></div>
+    <div id="streak"></div>
 
     <div id="feed"></div>
     <div id="banner"></div>
@@ -28,6 +30,7 @@
       <div id="hpRow"><span>OPERATIVE</span><div class="bar hp"><i id="hpBar"></i></div></div>
       <div id="weaponRow"><span id="weaponName"></span><span id="ammo"></span></div>
       <div id="weaponSlots"></div>
+      <div id="gearRow"></div>
     </div>
     <div id="abilities"></div>
 
@@ -61,8 +64,9 @@
         Owain Glyndŵr's army still days away. History says Hotspur dies here and the rebellion withers.
       </p>
       <p>
-        You have been sent back with everything the chrono-lift could carry. <b>Keep Hotspur alive. Break the
-        royal army or kill the King.</b> Hold out long enough and Glyndŵr may yet arrive.
+        You have been sent back with everything the chrono-lift could carry. <b>Keep Hotspur alive, break the
+        royal army in the field, then storm the castle where King Henry waits, and kill him.</b>
+        Hold out long enough and Glyndŵr may yet arrive.
       </p>
       <div class="cols">
         <div>
@@ -70,9 +74,10 @@
           <ul>
             <li><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Mouse</kbd> aim</li>
             <li><kbd>LMB</kbd> fire · <kbd>RMB</kbd> aim down sights · <kbd>R</kbd> reload</li>
-            <li><kbd>1</kbd> rifle · <kbd>2</kbd> shotgun · <kbd>3</kbd> grenade launcher</li>
-            <li><kbd>Z</kbd> airstrike at aim point · <kbd>X</kbd> gunship support</li>
-            <li><kbd>F</kbd> enter / exit the armoured SUV</li>
+            <li><kbd>1</kbd> rifle · <kbd>2</kbd> shotgun · <kbd>3</kbd> launcher · <kbd>4</kbd>/<kbd>Q</kbd> longsword</li>
+            <li><b>Sword:</b> click combo (3rd hit spins) · hold to charge a heavy blow · sprint + click to lunge · <kbd>RMB</kbd> block</li>
+            <li><kbd>G</kbd> breaching charge (C4) · <kbd>Z</kbd> airstrike · <kbd>X</kbd> gunship</li>
+            <li><kbd>F</kbd> enter / exit the armoured SUV — stand next to it to resupply</li>
           </ul>
         </div>
         <div>
@@ -93,7 +98,8 @@
             <li><b>Field:</b> left stick move · right stick look</li>
             <li><kbd>LT</kbd> aim · <kbd>RT</kbd> fire · <kbd>LB</kbd>/<kbd>RB</kbd> switch weapon</li>
             <li><kbd>X</kbd> reload · <kbd>Y</kbd> enter/exit SUV · hold <kbd>A</kbd> or click <kbd>L3</kbd> sprint</li>
-            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> rifle · <kbd>▼</kbd> launcher</li>
+            <li><kbd>B</kbd> sword ⇄ gun · sword: <kbd>RT</kbd> tap combo / hold heavy · <kbd>LT</kbd> block</li>
+            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> C4 · <kbd>▼</kbd> launcher</li>
             <li>In the SUV: <kbd>RT</kbd> gas · <kbd>LT</kbd> brake/reverse · <kbd>B</kbd> handbrake</li>
           </ul>
           <ul>
@@ -105,6 +111,12 @@
           </ul>
         </div>
       </details>
+      <div id="difficulty">
+        <span>Difficulty</span>
+        <label><input type="radio" name="diff" value="squire"> Squire</label>
+        <label><input type="radio" name="diff" value="knight" checked> Knight</label>
+        <label><input type="radio" name="diff" value="kingslayer"> Kingslayer</label>
+      </div>
       <button id="startBtn">Deploy</button> <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
       <p id="loading" class="hidden">Raising armies…</p>
     </div>
