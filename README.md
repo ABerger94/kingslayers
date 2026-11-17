@@ -2,8 +2,11 @@
 
 A third-person shooter / real-time strategy hybrid. You are a modern special-operations soldier
 sent back to **the Battle of Shrewsbury, 21 July 1403**, with an assault rifle, a shotgun, a grenade
-launcher, an armoured SUV, an attack helicopter and airstrikes. Keep Harry "Hotspur" Percy alive,
-break King Henry IV's army, and rewrite history.
+launcher, a longsword, breaching charges, an armoured SUV, an attack helicopter and airstrikes.
+
+**Objectives:** keep Harry "Hotspur" Percy alive, break King Henry IV's army in the field, breach the
+royal castle (C4, airstrikes, or let your soldiers batter down the gate) and kill the King inside.
+Choose Squire, Knight or Kingslayer difficulty on the intro screen.
 
 Every battle is a live simulation of ~3,000 soldiers (up to ~3,600 once Owain Glyndŵr's Welsh arrive),
 each with their own targeting, pathfinding, morale and loyalty, running on a Web Worker thread
@@ -24,11 +27,14 @@ npm run dev        # http://localhost:5173
 |---|---|
 | WASD / Shift | move / sprint |
 | Mouse, LMB, RMB | aim, fire, aim down sights |
-| 1 / 2 / 3, wheel | assault rifle / shotgun / grenade launcher |
+| 1 / 2 / 3 / 4, wheel | assault rifle / shotgun / grenade launcher / longsword |
+| Q | quick-swap between sword and your last gun |
+| Sword | click for a 3-hit combo (the third is a spin), hold to charge a heavy blow, sprint + click to lunge, RMB to block blows and arrows from the front. Sword kills rally nearby rebels |
 | R | reload |
+| G | breaching charge (C4, 4-second fuse; sticks to walls in front of you). 3 carried |
 | Z | airstrike on the crosshair |
 | X | attack helicopter support |
-| F | enter / exit the armoured SUV (ram through formations) |
+| F | enter / exit the armoured SUV (ram through formations). Standing next to it resupplies ammo, health and C4 |
 | **Tab** | switch to command view |
 
 | Command (strategy) | |
@@ -50,8 +56,9 @@ Chrome and Edge.
 | Field | |
 |---|---|
 | Left stick / right stick | move (analog) / look, with light aim assist |
-| LT / RT | aim down sights / fire |
-| LB / RB, D-pad ▲ ▼ | previous / next weapon, rifle / grenade launcher |
+| LT / RT | aim down sights / fire (sword: block / tap combo, hold heavy) |
+| LB / RB · B | previous / next weapon · sword ⇄ gun |
+| D-pad ▲ / ▼ | breaching charge / grenade launcher |
 | X · Y | reload · enter/exit SUV |
 | hold A or click L3 | sprint |
 | D-pad ◀ / ▶ | airstrike / gunship |
@@ -76,7 +83,8 @@ Chrome and Edge.
 ## Tests and benchmark
 
 ```bash
-npm test           # 60 s headless battle with sanity checks
+npm test           # 60 s headless battle with sanity checks, plus a siege test
+                   # (field army removed: rebels must batter the gate and kill the King)
 npm run bench      # full AI-vs-AI battle, reports tick cost
 ```
 

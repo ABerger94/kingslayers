@@ -80,9 +80,9 @@ export class Gamepad {
 
 // ---------------------------------------------------------------------------- bindings
 // Field (third-person shooter)
-//   Left stick move · Right stick look · LT aim · RT fire · LB/RB previous/next weapon
-//   X reload · Y enter/exit SUV · A (hold) or L3 sprint · B handbrake (in SUV)
-//   D-pad left airstrike · D-pad right gunship · D-pad up/down rifle / grenade launcher
+//   Left stick move · Right stick look · LT aim / block · RT fire / swing · LB/RB previous/next weapon
+//   X reload · Y enter/exit SUV · A (hold) or L3 sprint · B sword <-> gun (handbrake in the SUV)
+//   D-pad left airstrike · D-pad right gunship · D-pad up breaching charge · D-pad down grenade launcher
 //   View: command mode
 export function applyFieldBindings(pad, input) {
   input.virtual.clear();
@@ -93,8 +93,9 @@ export function applyFieldBindings(pad, input) {
   if (pad.hit(BTN.Y)) press('KeyF');
   if (pad.hit(BTN.LEFT)) press('KeyZ');
   if (pad.hit(BTN.RIGHT)) press('KeyX');
-  if (pad.hit(BTN.UP)) press('Digit1');
+  if (pad.hit(BTN.UP)) press('KeyG');
   if (pad.hit(BTN.DOWN)) press('Digit3');
+  if (pad.hit(BTN.B)) press('KeyQ');
   if (pad.hit(BTN.LB)) input.mouse.wheel -= 1;
   if (pad.hit(BTN.RB)) input.mouse.wheel += 1;
   // Sprint: hold A, or click the left stick (stays on until the stick is released)

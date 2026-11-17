@@ -1,6 +1,8 @@
 // DOM heads-up display: battle status, player status, support cooldowns, message feed, minimap,
 // and the command-mode regiment roster.
-import { WEAPONS } from './player.js';
+import { WEAPONS, MAX_C4 } from './player.js';
+import { castleCells, cellX, cellZ, CELL_GATE, CELL_KEEP } from '../shared/castle.js';
+import { structTop } from './structures.js';
 import { SUPPORT } from './support.js';
 import { HALF_WORLD, WORLD_SIZE, SNAP_STRIDE, TEAM_REBEL, ST_DEAD, ST_ROUT, TYPE_NAMES, ORDER_NAMES } from '../shared/constants.js';
 import { WOODS } from '../shared/terrain.js';
@@ -16,6 +18,7 @@ export class Hud {
       minimap: $('minimap'), modeTag: $('modeTag'), rtsPanel: $('rtsPanel'), regList: $('regList'), selInfo: $('selInfo'),
       orderButtons: $('orderButtons'), supplies: $('supplies'), selbox: $('selbox'), pauseTag: $('pauseTag'),
       vignette: $('vignette'), hitmarker: $('hitmarker'), crosshair: $('crosshair'), padCursor: $('padCursor'),
+      objectives: $('objectives'), gearRow: $('gearRow'), streak: $('streak'),
     };
     this.mm = this.el.minimap.getContext('2d');
     this.el.weaponSlots.innerHTML = WEAPONS.map((w, k) => `<span data-w="${k}">${k + 1} ${w.short}</span>`).join('');
@@ -104,10 +107,17 @@ export class Hud {
     } else {
       const a = player.ammo[player.weapon];
       e.weaponName.textContent = player.w.name + (player.reloading > 0 ? ' — reloading' : '');
-      e.ammo.textContent = `${a.mag} / ${a.reserve}`;
+      if (player.melee) {
+        const move = player.blocking ? 'BLOCK' : player.charging && player.charge > 0.35 ? 'HEAVY READY' : player.swing ? player.swing.kind.toUpperCase() : `combo ${player.combo + 1}/3`;
+        e.ammo.textContent = move;
+      } else e.ammo.textContent = `${a.mag} / ${a.reserve}`;
     }
     for (const s of e.weaponSlots.children) s.classList.toggle('on', +s.dataset.w === player.weapon);
     const padKeys = { airstrike: '◀', gunship: '▶', suv: 'Y' };
+    const c4Key = this.padMode ? '▲' : 'G';
+    const gear = `<span>C4 <kbd>${c4Key}</kbd> ${'■'.repeat(player.c4)}${'□'.repeat(MAX_C4 - player.c4)}</span>` +
+      (player.resupplying ? '<span class="resupply">Resupplying from SUV</span>' : '');
+    if (gear !== this.lastGear) { e.gearRow.innerHTML = gear; this.lastGear = gear; }
     for (const a of e.abilities.children) {
       const k = a.dataset.a;
       const kb = a.querySelector('kbd');
@@ -151,6 +161,31 @@ export class Hud {
     this.setSelInfo(rts.mode ? this.el.selInfo.innerHTML : rts.selectedSummary());
   }
 
+  // Objective tracker. obj = { field, gate, open, assault } from the simulation
+  updateObjectives(obj, heroes) {
+    if (!obj) return;
+    const hot = heroes && heroes.find((h) => h.name === 'Harry Hotspur');
+    const king = heroes && heroes.find((h) => h.name === 'King Henry IV');
+    const row = (done, failed, text, extra = '') => `<div class="obj ${done ? 'done' : ''} ${failed ? 'failed' : ''}"><i>${done ? '✔' : failed ? '✖' : '◆'}</i>${text}${extra}</div>`;
+    const bar = (f) => `<div class="bar"><i style="width:${Math.max(0, Math.min(1, f)) * 100}%"></i></div>`;
+    const html = row(false, hot && hot.hp <= 0, 'Keep Harry Hotspur alive') +
+      row(obj.assault, false, 'Break the royal field army', obj.assault ? '' : bar(1 - (obj.field - 0.3) / 0.7)) +
+      row(obj.open, false, 'Breach the castle', obj.open ? '' : bar(1 - obj.gate) + '<small>C4, airstrikes, or batter the gate</small>') +
+      row(king && king.hp <= 0, false, 'Kill King Henry IV');
+    if (html !== this.lastObj) { this.el.objectives.innerHTML = '<b>OBJECTIVES</b>' + html; this.lastObj = html; }
+  }
+
+  // Multi-kill callouts
+  streak(n) {
+    const names = { 3: 'TRIPLE KILL', 5: 'RAMPAGE', 8: 'MASSACRE', 12: 'ANACHRONISM', 20: 'WRATH OF GOD' };
+    let label = null;
+    for (const k of Object.keys(names).map(Number)) if (n >= k) label = names[k];
+    if (!label) return;
+    const el = this.el.streak;
+    el.textContent = `${label} ×${n}`;
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  }
+
   drawMinimap(snap, player, cam, regiments, dt) {
     this.mmTimer -= dt;
     if (this.mmTimer > 0 || !snap) return;
@@ -169,6 +204,13 @@ export class Hud {
       if (x === -HALF_WORLD) g.moveTo(tx(x), tz(z)); else g.lineTo(tx(x), tz(z));
     }
     g.stroke();
+    // the castle
+    for (const cell of castleCells()) {
+      const intact = cell.type === CELL_KEEP || structTop(cellX(cell.cx), cellZ(cell.cz)) > 0;
+      if (!intact) continue;
+      g.fillStyle = cell.type === CELL_GATE ? '#8a6a3a' : cell.type === CELL_KEEP ? '#6a6a70' : '#b4b0a6';
+      g.fillRect(tx(cellX(cell.cx) - 2), tz(cellZ(cell.cz) - 2), 4 * k + 0.5, 4 * k + 0.5);
+    }
     const n = snap.length / SNAP_STRIDE;
     const cols = ['#f0c040', '#e0404a'];
     for (let i = 0; i < n; i++) {

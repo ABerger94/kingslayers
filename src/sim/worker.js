@@ -13,8 +13,8 @@ let last = 0;
 let tickCount = 0;
 let simMs = 0;
 
-function start(seed) {
-  sim = buildShrewsbury(new Sim(seed));
+function start(seed, difficulty) {
+  sim = buildShrewsbury(new Sim(seed), difficulty);
   last = performance.now();
   postMessage({ t: 'ready', n: sim.n, regiments: sim.regimentSummary() });
   setInterval(loop, 1000 / 60);
@@ -47,6 +47,7 @@ function loop() {
     supplies: sim.supplies,
     strength: sim.teamStrength,
     stats: sim.stats,
+    obj: sim.objectives,
     simMs,
   };
   if (tickCount % 5 === 0) msg.regiments = sim.regimentSummary();
@@ -56,12 +57,12 @@ function loop() {
 onmessage = (e) => {
   const m = e.data;
   switch (m.t) {
-    case 'start': start(m.seed ?? 1403); break;
+    case 'start': start(m.seed ?? 1403, m.difficulty); break;
     case 'player': if (sim) Object.assign(sim.player, m.p); break;
     case 'damage':
       for (let k = 0; k < m.hits.length; k += 2) sim.damageUnit(m.hits[k], m.hits[k + 1], m.source || 'gun');
       break;
-    case 'explode': sim.explode(m.x, m.z, m.r, m.dmg); break;
+    case 'explode': sim.explode(m.x, m.z, m.r, m.dmg, m.structDmg); break;
     case 'order':
       for (const id of m.regs) {
         sim.setAuto(id, false);

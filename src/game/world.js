@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { WORLD_SIZE, HALF_WORLD, NAV_CELL, NAV_DIM } from '../shared/constants.js';
 import { heightAt, inPeaField, riverDistance, WOODS } from '../shared/terrain.js';
 import { RIVER_HALF_WIDTH } from '../shared/constants.js';
+import { CASTLE_BOUNDS } from '../shared/castle.js';
+import { setStructure, PALISADE_H } from './structures.js';
 
 // Bilinear height lookup table: heightAt() is too slow to call thousands of times per frame.
 const LUT_RES = 2;
@@ -23,9 +25,30 @@ export function groundY(x, z) {
 
 export function createWorld(renderer) {
   const scene = new THREE.Scene();
-  const skyColor = new THREE.Color(0xb9c9d6);
+  const skyColor = new THREE.Color(0xc4cfd6);
   scene.background = skyColor;
-  scene.fog = new THREE.Fog(0xb9c9d6, 180, 620);
+  scene.fog = new THREE.Fog(0xc4cfd6, 200, 700);
+
+  // Sky dome: late-afternoon gradient with a warm glow around the sun
+  const skyGeo = new THREE.SphereGeometry(1100, 32, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { sunDir: { value: new THREE.Vector3(-0.55, 0.42, -0.72).normalize() } },
+    vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      varying vec3 vDir; uniform vec3 sunDir;
+      void main() {
+        float h = clamp(vDir.y, -0.1, 1.0);
+        vec3 horizon = vec3(0.86, 0.85, 0.80), zenith = vec3(0.36, 0.52, 0.72);
+        vec3 col = mix(horizon, zenith, pow(max(h, 0.0), 0.55));
+        float s = max(dot(vDir, sunDir), 0.0);
+        col += vec3(1.0, 0.78, 0.5) * (pow(s, 12.0) * 0.35 + pow(s, 400.0) * 1.5);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  sky.renderOrder = -1;
+  scene.add(sky);
 
   const hemi = new THREE.HemisphereLight(0xdfe8f0, 0x4a5a32, 1.6);
   scene.add(hemi);
@@ -46,6 +69,7 @@ export function createWorld(renderer) {
   const colors = new Float32Array(pos.count * 3);
   const grass = new THREE.Color(0x5f7d3a), grass2 = new THREE.Color(0x7a8f45), mud = new THREE.Color(0x6b5a3c);
   const pea = new THREE.Color(0x8aa04a), peaRow = new THREE.Color(0x667a33), bank = new THREE.Color(0x5a5236);
+  const courtyard = new THREE.Color(0x7d6f55);
   const c = new THREE.Color();
   for (let v = 0; v < pos.count; v++) {
     const x = pos.getX(v), z = pos.getZ(v);
@@ -56,6 +80,10 @@ export function createWorld(renderer) {
     if (inPeaField(x, z)) c.copy((Math.floor((x + 300) / 2.5) % 2) ? pea : peaRow);
     const rd = riverDistance(x, z);
     if (rd < RIVER_HALF_WIDTH + 8) c.copy(bank);
+    // Packed earth around and inside the castle
+    const b = CASTLE_BOUNDS;
+    const cd = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.z0 - z, 0, z - b.z1));
+    if (cd < 14) c.lerp(courtyard, cd === 0 ? 0.85 : 0.6 * (1 - cd / 14));
     // trampled mud near the centre where the armies will clash
     const m = Math.exp(-((x * x) / (2 * 160 * 160) + ((z - 10) * (z - 10)) / (2 * 50 * 50)));
     c.lerp(mud, m * 0.25 * n);
@@ -99,6 +127,7 @@ export function createWorld(renderer) {
   for (let k = 0; k < 120; k++) {
     const x = (rnd() - 0.5) * WORLD_SIZE * 0.95, z = (rnd() - 0.5) * WORLD_SIZE * 0.95;
     if (Math.abs(x) < 260 && z > -200 && z < 220) continue; // keep the battlefield open
+    if (x > CASTLE_BOUNDS.x0 - 30 && x < CASTLE_BOUNDS.x1 + 30 && z > CASTLE_BOUNDS.z0 - 30) continue;
     if (riverDistance(x, z) < RIVER_HALF_WIDTH + 4) continue;
     treeSpots.push([x, z, 0.8 + rnd() * 0.5]);
   }
@@ -121,7 +150,7 @@ export function createWorld(renderer) {
   const tentGeo = new THREE.ConeGeometry(3, 4, 4).translate(0, 2, 0);
   const tents = [
     [-40, -190, 0xd9c48a], [-20, -195, 0xe0b341], [10, -192, 0xd9c48a], [30, -186, 0xe0b341],
-    [-30, 225, 0xc8323c], [0, 230, 0xe5e0d0], [30, 225, 0xc8323c], [60, 232, 0x2b4a9a], [-60, 232, 0x2b4a9a],
+    [-80, 205, 0xc8323c], [-95, 215, 0xe5e0d0], [80, 205, 0xc8323c], [95, 215, 0x2b4a9a], [-110, 200, 0x2b4a9a],
   ];
   for (const [x, z, col] of tents) {
     const t = new THREE.Mesh(tentGeo, new THREE.MeshLambertMaterial({ color: col }));
@@ -172,8 +201,8 @@ export function createFortRenderer(scene) {
     mesh.instanceMatrix.needsUpdate = true;
   };
   return {
-    add(list) { for (const c of list) cells.set(c, true); rebuild(); },
-    remove(c) { cells.delete(c); rebuild(); },
+    add(list) { for (const c of list) { cells.set(c, true); setStructure(c, PALISADE_H); } rebuild(); },
+    remove(c) { if (!cells.has(c)) return false; cells.delete(c); setStructure(c, 0); rebuild(); return true; },
   };
 }
 

@@ -2,6 +2,7 @@
 // Gentle Shropshire hills, a ridge for the royal army, the River Severn to the north,
 // and patches of woodland that block movement.
 import { HALF_WORLD, RIVER_Z, RIVER_HALF_WIDTH } from './constants.js';
+import { CASTLE_BOUNDS } from './castle.js';
 
 function hash(ix, iz) {
   let h = (ix * 374761393 + iz * 668265263) | 0;
@@ -60,7 +61,24 @@ export function inWoods(x, z) {
   return false;
 }
 
+// The castle sits on a levelled platform; terrain blends into it over this margin
+const CASTLE_MARGIN = 22;
+let castleBase = null;
+
 export function heightAt(x, z) {
+  let h = rawHeight(x, z);
+  if (castleBase === null) castleBase = rawHeight((CASTLE_BOUNDS.x0 + CASTLE_BOUNDS.x1) / 2, (CASTLE_BOUNDS.z0 + CASTLE_BOUNDS.z1) / 2) + 1.5;
+  const b = CASTLE_BOUNDS;
+  const dx = Math.max(b.x0 - x, 0, x - b.x1), dz = Math.max(b.z0 - z, 0, z - b.z1);
+  const d = Math.hypot(dx, dz);
+  if (d < CASTLE_MARGIN) {
+    const t = smooth(1 - d / CASTLE_MARGIN);
+    h = h * (1 - t) + castleBase * t;
+  }
+  return h;
+}
+
+function rawHeight(x, z) {
   let h = (fbm(x * 0.006 + 10, z * 0.006 + 20) - 0.5) * 22;
   // The royal army forms up on rising ground to the south (positive z)
   h += Math.max(0, z - 40) * 0.035;

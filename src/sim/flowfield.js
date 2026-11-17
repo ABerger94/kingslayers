@@ -4,6 +4,7 @@
 // pathfinding for thousands of agents cheap.
 import { NAV_CELL, NAV_DIM, HALF_WORLD } from '../shared/constants.js';
 import { inRiver, inWoods } from '../shared/terrain.js';
+import { castleCells, CELL_GATE, WALL_HP, GATE_HP } from '../shared/castle.js';
 
 const N = NAV_DIM * NAV_DIM;
 const INF = 1e9;
@@ -22,7 +23,11 @@ export class NavGrid {
         if (inRiver(x, z) || inWoods(x, z)) this.blocked[cz * NAV_DIM + cx] = 1;
       }
     }
-    // Ford across the Severn at the far west and east (so routers have somewhere to go)
+    // The royal castle: walls and gate are blocked but destructible (fortHp), the keep is solid
+    for (const cell of castleCells()) {
+      this.blocked[cell.c] = cell.type;
+      this.fortHp[cell.c] = cell.type === CELL_GATE ? GATE_HP : WALL_HP;
+    }
     this.cache = new Map();
     this.version = 0;
     // scratch for Dijkstra
@@ -51,11 +56,19 @@ export class NavGrid {
     return true;
   }
 
-  clearFort(c) {
-    if (this.blocked[c] !== 2) return;
+  // Is this cell a destructible structure (palisade, castle wall or gate)?
+  destructible(c) {
+    const b = this.blocked[c];
+    return b === 2 || b === 3 || b === 4;
+  }
+
+  clearCell(c) {
+    if (!this.destructible(c)) return 0;
+    const type = this.blocked[c];
     this.blocked[c] = 0;
     this.fortHp[c] = 0;
     this.invalidate();
+    return type;
   }
 
   invalidate() {

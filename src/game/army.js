@@ -7,6 +7,7 @@ import {
   ST_FIGHT, ST_SHOOT, ST_ROUT, ST_DEAD, STATS, TEAM_REBEL, SIM_DT,
 } from '../shared/constants.js';
 import { groundY, mergeSimple } from './world.js';
+import { WALL_H } from '../shared/castle.js';
 
 const SKIN = 0xd2a27c, STEEL = 0x9aa1a8, DARK = 0x3a3128, WOOD = 0x6d4c2c, LEATHER = 0x5a4026, HORSE = 0x6b4a33;
 export const TEAM_COLORS = [new THREE.Color(0xe0b341), new THREE.Color(0xc8323c)];
@@ -114,6 +115,7 @@ export class ArmyRenderer {
     this.typeOf = new Uint8Array(n);
     this.teamOf = new Uint8Array(n);
     this.stateOf = new Uint8Array(n);
+    this.onWallOf = new Uint8Array(n);
     this.instanceOf = new Int32Array(n);
     const counts = new Array(NUM_TYPES).fill(0);
     for (let i = 0; i < n; i++) {
@@ -184,18 +186,25 @@ export class ArmyRenderer {
       if (dh > Math.PI) dh -= 2 * Math.PI; else if (dh < -Math.PI) dh += 2 * Math.PI;
       const heading = h0 + dh * alpha;
       const packed = cur[k + 3];
-      const type = packed & 7, team = (packed >> 3) & 1, state = (packed >> 4) & 7;
+      const type = packed & 7, team = (packed >> 3) & 1, state = (packed >> 4) & 7, onWall = (packed >> 7) & 1;
       const hpf = cur[k + 4];
       const speed = cur[k + 5];
-      const y = groundY(x, z);
+      const y = groundY(x, z) + (onWall ? WALL_H : 0);
       this.px[i] = x; this.pz[i] = z; this.py[i] = y;
-      this.teamOf[i] = team; this.stateOf[i] = state;
+      this.teamOf[i] = team; this.stateOf[i] = state; this.onWallOf[i] = onWall;
       const mesh = this.meshes[type];
       const idx = this.instanceOf[i];
       let lean = 0, bob = 0, roll = 0, sc = 1;
       if (state === ST_DEAD) {
-        if (hpf < 0) { sc = 0; } // fled the field
-        else {
+        if (hpf === -1) { sc = 0; } // fled the field
+        else if (hpf === -2) {
+          // Thrown by an explosion: arc through the air, tumbling, then lie still
+          if (this.deathAt[i] < 0) this.deathAt[i] = t;
+          const f = Math.min(1, (t - this.deathAt[i]) / 0.75);
+          bob = Math.sin(f * Math.PI) * (type === CAVALRY ? 1.2 : 3.2) - f * 0.15;
+          lean = -Math.PI / 2 * Math.min(1, f * 1.3) - (1 - f) * f * 9;
+          roll = (i % 2 ? 1 : -1) * (1 - f) * f * 6 + (type === CAVALRY ? f * Math.PI / 2 : 0);
+        } else {
           if (this.deathAt[i] < 0) this.deathAt[i] = t;
           const f = Math.min(1, (t - this.deathAt[i]) / 0.45);
           lean = -f * f * Math.PI / 2 * (type === CAVALRY ? 0 : 1);
@@ -279,6 +288,8 @@ export class ArmyRenderer {
     }
     return bestI >= 0 ? { i: bestI, t: best, head } : null;
   }
+
+  onWall(i) { return this.onWallOf[i] === 1; }
 
   // Units within radius (for vehicle ramming, gunship targeting)
   nearby(x, z, r, team, out = []) {

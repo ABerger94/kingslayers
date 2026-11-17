@@ -71,7 +71,7 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
 #minimap { position: absolute; right: 16px; bottom: 16px; width: 200px; height: 200px; border: 1px solid var(--line); border-radius: 6px; background: rgba(20, 30, 15, 0.8); pointer-events: auto; }
 #modeTag { position: absolute; right: 16px; bottom: 222px; background: var(--panel); padding: 3px 8px; border-radius: 4px; font-size: 12px; }
 
-#rtsPanel { position: absolute; left: 16px; top: 100px; bottom: 140px; width: 300px; display: flex; flex-direction: column; gap: 8px; }
+#rtsPanel { position: absolute; left: 16px; top: 150px; bottom: 140px; width: 300px; display: flex; flex-direction: column; gap: 8px; }
 #regList { flex: 1; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
 .reg { padding: 4px 6px; border-radius: 4px; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; font-size: 12px; border: 1px solid transparent; }
 .reg:hover { background: rgba(255,255,255,0.06); }
@@ -103,7 +103,8 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
 @media (max-width: 900px), (max-height: 520px) {
   #minimap { width: 120px; height: 120px; }
   #modeTag { bottom: 142px; }
-  #abilities { left: 16px; bottom: auto; top: 100px; flex-direction: column; }
+  #abilities { left: auto; right: 16px; bottom: auto; top: 100px; flex-direction: column; }
+  #objectives { width: 210px; font-size: 11px; }
   #topbar .bar { width: 90px; }
 }
 
@@ -112,3 +113,22 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
 #padHelp { margin-top: 12px; font-size: 13px; }
 #padHelp summary { cursor: pointer; color: var(--rebel); font-weight: 600; }
 #padPrompt { margin-left: 10px; opacity: .8; }
+
+#objectives { position: absolute; top: 10px; left: 16px; width: 270px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+#objectives > b { font-size: 10px; letter-spacing: .14em; opacity: .7; }
+#objectives .obj { margin-top: 3px; }
+#objectives .obj i { font-style: normal; display: inline-block; width: 16px; color: var(--rebel); }
+#objectives .obj.done { opacity: .55; text-decoration: line-through; }
+#objectives .obj.done i { color: #7fd67f; }
+#objectives .obj.failed i { color: var(--crown); }
+#objectives .bar { height: 4px; margin: 2px 0 0 16px; }
+#objectives .bar i { background: var(--rebel); }
+#objectives small { display: block; margin-left: 16px; opacity: .6; font-size: 10px; }
+#gearRow { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; }
+#gearRow .resupply { color: #8fe08f; }
+#streak { position: absolute; top: 38%; left: 0; right: 0; text-align: center; font: 800 26px system-ui, sans-serif; letter-spacing: .12em; color: #ffd76a; text-shadow: 0 2px 6px #000; opacity: 0; }
+#streak.pop { animation: streak 1.6s ease-out; }
+@keyframes streak { 0% { opacity: 0; transform: scale(1.6); } 12% { opacity: 1; transform: scale(1); } 70% { opacity: 1; } 100% { opacity: 0; } }
+#difficulty { margin-top: 14px; display: flex; gap: 14px; align-items: center; font-size: 13px; }
+#difficulty span { color: var(--rebel); font-weight: 600; }
+#difficulty label { cursor: pointer; }

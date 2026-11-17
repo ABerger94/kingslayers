@@ -27,8 +27,16 @@ has been traced back to that morning, so one operative is sent back with a moder
 The two modes share one world. Your body stays on the field while you command, so royal soldiers can still
 reach it. This keeps the switch tense rather than a free pause.
 
-**Win:** kill King Henry IV, or reduce the royal army below 20% fighting strength.
-**Lose:** Hotspur dies, or the rebel army falls below 15%.
+**Phases:**
+1. *The field.* An archery duel, then the royal infantry and knights advance.
+2. *The assault.* When the royal field army drops below 30% fighting strength, the rebel AI marches on the
+   castle. Royal troops inside hold the courtyard until the walls are breached.
+3. *The breach.* Wall sections (2,600 HP) and the gate (1,800 HP) are destructible. Breaching charges and
+   airstrikes do it fast; rebel soldiers pressed against the gate batter it down slowly while the wall
+   archers shoot them.
+4. *The King.* King Henry IV and his guard stand before the keep.
+
+**Win:** kill King Henry IV. **Lose:** Hotspur dies, or the rebel army falls below 12%.
 **Twist:** at 2:00 Owain Glyndŵr arrives from the west with the Welsh host. Historically he never came.
 
 ## 3. Units (medieval)
@@ -44,6 +52,15 @@ reach it. This keeps the switch tense rather than a free pause.
 Soldiers are grouped into **regiments** that keep formation slots around a moving anchor. The anchor waits
 for stragglers (cohesion), so blocks advance as blocks and dissolve into melee once in contact.
 
+## 3b. The royal castle
+
+A curtain wall laid out on the navigation grid: 22×14 cells (88×56 m), round towers at the corners, the
+middle of each side and flanking the gatehouse, plus an indestructible keep. Every wall and gate cell is a
+blocked, destructible nav cell, so breaching one re-opens pathfinding through it automatically (the cached
+flow fields are invalidated). Wall archers (the *garrison*) stand at 8 m. They can't be reached in melee or
+by the SUV, arrows aimed at them fly at the right height, and they fall when their wall section goes.
+Melee soldiers don't chase enemies on the other side of a wall (line-of-sight check on the nav grid).
+
 ## 4. Modern arsenal
 
 | Asset | Effect | Limits |
@@ -54,6 +71,8 @@ for stragglers (cohesion), so blocks advance as blocks and dissolve into melee o
 | Armoured SUV | ramming kills, ignores arrows | 1,500 HP; knights and spearmen slow it |
 | Attack helicopter | 30 s orbit, minigun bursts and rockets | 80 s cooldown |
 | Airstrike | 5-bomb line, 10 m blasts | 50 s cooldown |
+| Longsword | combo, spin, charged heavy, lunge, block; kills rally nearby rebels | unlimited, but you have to get close |
+| Breaching charge (C4) | 4 s fuse, blows open walls and gates | 3 carried, restocked at the SUV |
 
 Explosions do more than damage. They drain morale up to 2.8× the blast radius and erode royal loyalty, so
 the right strike at the right moment routs a regiment without killing most of it.

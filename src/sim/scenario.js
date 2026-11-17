@@ -3,13 +3,23 @@
 import {
   ARCHER, SWORD, SPEAR, CAVALRY, HERO, TEAM_REBEL, TEAM_CROWN, ORDER_ATTACK_MOVE,
 } from '../shared/constants.js';
+import { garrisonSpots } from '../shared/castle.js';
+
+// Size of the royal army per difficulty
+export const DIFFICULTY = {
+  squire: { crown: 0.8, label: 'Squire' },
+  knight: { crown: 1.0, label: 'Knight' },
+  kingslayer: { crown: 1.2, label: 'Kingslayer' },
+};
 
 export const SOUTH = 0; // facing +z
 export const NORTH = Math.PI; // facing -z
 
-export function buildShrewsbury(sim) {
-  sim.allocate(4200);
+export function buildShrewsbury(sim, difficulty = 'knight') {
+  sim.allocate(4600);
   const R = TEAM_REBEL, C = TEAM_CROWN;
+  const k = (DIFFICULTY[difficulty] || DIFFICULTY.knight).crown;
+  const n = (count) => Math.round(count * k);
 
   // ---- Rebel alliance (north, the player's side)
   ['I', 'II', 'III', 'IV', 'V'].forEach((n, k) => sim.spawnRegiment(R, ARCHER, `Cheshire Bowmen ${n}`, 110, -200 + k * 100, -70, SOUTH));
@@ -22,16 +32,22 @@ export function buildShrewsbury(sim) {
   sim.spawnRegiment(R, HERO, "Hotspur's Household", 40, 0, -150, SOUTH, { hero: 'Harry Hotspur', guardType: SWORD });
 
   // ---- Royal army (south, on the rising ground)
-  ['I', 'II', 'III', 'IV', 'V', 'VI'].forEach((n, k) => sim.spawnRegiment(C, ARCHER, `Royal Archers ${n}`, 105, -200 + k * 80, 95, NORTH));
-  sim.spawnRegiment(C, SWORD, "King's Men-at-Arms I", 170, -120, 115, NORTH);
-  sim.spawnRegiment(C, SWORD, "King's Men-at-Arms II", 170, 0, 115, NORTH);
-  sim.spawnRegiment(C, SWORD, "King's Men-at-Arms III", 170, 120, 115, NORTH);
-  sim.spawnRegiment(C, SPEAR, 'Royal Billmen I', 150, -240, 100, NORTH);
-  sim.spawnRegiment(C, SPEAR, 'Royal Billmen II', 150, 210, 100, NORTH);
-  sim.spawnRegiment(C, HERO, "Prince Hal's Retinue", 70, -180, 145, NORTH, { hero: 'Prince Hal', guardType: SWORD });
-  sim.spawnRegiment(C, CAVALRY, "Stafford's Knights", 90, -110, 165, NORTH);
-  sim.spawnRegiment(C, CAVALRY, "Blount's Knights", 90, 110, 165, NORTH);
-  sim.spawnRegiment(C, HERO, "King Henry's Guard", 100, 0, 180, NORTH, { hero: 'King Henry IV', guardType: SWORD });
+  ['I', 'II', 'III', 'IV', 'V', 'VI'].forEach((name, i) => sim.spawnRegiment(C, ARCHER, `Royal Archers ${name}`, n(105), -200 + i * 80, 95, NORTH));
+  sim.spawnRegiment(C, SWORD, "King's Men-at-Arms I", n(170), -120, 120, NORTH);
+  sim.spawnRegiment(C, SWORD, "King's Men-at-Arms II", n(170), 0, 120, NORTH);
+  sim.spawnRegiment(C, SWORD, "King's Men-at-Arms III", n(170), 120, 120, NORTH);
+  sim.spawnRegiment(C, SPEAR, 'Royal Billmen I', n(150), -240, 100, NORTH);
+  sim.spawnRegiment(C, SPEAR, 'Royal Billmen II', n(150), 210, 100, NORTH);
+  sim.spawnRegiment(C, HERO, "Prince Hal's Retinue", n(70), -180, 150, NORTH, { hero: 'Prince Hal', guardType: SWORD });
+  sim.spawnRegiment(C, CAVALRY, "Stafford's Knights", n(90), -110, 170, NORTH);
+  sim.spawnRegiment(C, CAVALRY, "Blount's Knights", n(90), 110, 170, NORTH);
+
+  // ---- The royal castle: King Henry holds the courtyard with his guard, archers man the walls
+  const king = sim.spawnRegiment(C, HERO, "King Henry's Guard", n(100), 0, 226, NORTH, { hero: 'King Henry IV', guardType: SWORD });
+  const castleW = sim.spawnRegiment(C, SWORD, 'Castle Men-at-Arms (West)', n(50), -24, 220, NORTH);
+  const castleE = sim.spawnRegiment(C, SPEAR, 'Castle Men-at-Arms (East)', n(50), 24, 220, NORTH);
+  for (const r of [king, castleW, castleE]) r.inCastle = true;
+  sim.spawnGarrison(C, 'Castle Garrison', garrisonSpots(), k >= 1.2 ? 3 : 2);
 
   // ---- What-if: Owain Glyndwr's Welsh arrive from the west mid-battle
   sim.scripted.push({

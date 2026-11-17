@@ -68,6 +68,20 @@ export class Audio {
     this.burst({ dur: 2.5, freq: 600, gain: Math.max(0.1, 0.6 - dist / 600), decay: 2.4, type: 'bandpass', q: 0.4, pitchDrop: 0.4 });
   }
 
+  // Sword
+  swoosh(heavy = false) {
+    this.burst({ dur: heavy ? 0.35 : 0.2, freq: heavy ? 900 : 1800, q: 1.2, type: 'bandpass', gain: heavy ? 0.5 : 0.35, decay: heavy ? 0.3 : 0.18, pitchDrop: 0.4 });
+  }
+  clang() { this.tone(1900, 0.25, 0.12, 'triangle', 0.92); this.tone(2650, 0.18, 0.06, 'sine', 0.9); this.burst({ dur: 0.05, freq: 5000, gain: 0.2, type: 'highpass' }); }
+  slash() { this.burst({ dur: 0.12, freq: 700, gain: 0.45, decay: 0.12, pitchDrop: 0.5 }); }
+  beep() { this.tone(2200, 0.07, 0.1, 'square'); }
+  crumble(dist = 0) {
+    const g = Math.max(0.15, 1 - dist / 300);
+    this.burst({ dur: 2.2, freq: 260, gain: g, decay: 2.1, pitchDrop: 0.3, delay: dist / 343 });
+    this.burst({ dur: 1.2, freq: 1400, gain: g * 0.4, decay: 1.0, type: 'bandpass', q: 0.5, delay: dist / 343 + 0.05 });
+  }
+  fanfare() { [523, 659, 784, 1047].forEach((f, k) => setTimeout(() => this.tone(f, 0.35, 0.12, 'sawtooth', 1.0), k * 140)); }
+
   startAmbience() {
     // Distant battle roar: filtered noise with slow swells
     const src = this.ctx.createBufferSource();
