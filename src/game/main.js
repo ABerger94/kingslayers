@@ -10,6 +10,7 @@ import { Support } from './support.js';
 import { Rts } from './rts.js';
 import { Hud } from './hud.js';
 import { CastleView } from './castleView.js';
+import { PadSetup } from './padSetup.js';
 import { BTN, applyFieldBindings, applyCommandBindings, releasePadButtons } from './gamepad.js';
 import { SNAP_STRIDE, TEAM_REBEL, TEAM_CROWN, ST_DEAD, ST_ROUT } from '../shared/constants.js';
 
@@ -53,6 +54,22 @@ const rts = new Rts(scene, camera, input, send, ui);
 player.onMessage = (t, bad) => hud.message(t, bad);
 player.onHit = () => { hud.hitmarker(); audio.hit(); };
 player.onRumble = (strong, weak, ms) => input.pad.rumble(strong, weak, ms);
+// Controller Setup (intro button, or F2 in game, which pauses the battle)
+const padSetup = new PadSetup(input.pad);
+document.getElementById('padSetupOpen').addEventListener('click', () => padSetup.show());
+padSetup.onClose = () => {
+  if (state.started && !state.outcome) {
+    if (!rts.paused) send({ t: 'pause', v: false });
+    if (!rts.active) input.lock();
+  }
+};
+function openPadSetup() {
+  if (padSetup.open) return;
+  if (state.started) { send({ t: 'pause', v: true }); input.unlock(); }
+  padSetup.show();
+}
+let warnedLayout = false;
+
 input.pad.onConnect = (id, connected) => {
   document.getElementById('padPrompt').classList.toggle('hidden', !connected);
   if (state.started) hud.message(connected ? 'Controller connected.' : 'Controller disconnected.', !connected);
@@ -220,6 +237,13 @@ function frame() {
   last = now;
   const pad = input.pad;
   pad.poll(now);
+  if (input.hit('F2')) openPadSetup();
+  if (padSetup.open) { input.endFrame(); if (state.started) renderer.render(scene, camera); return; }
+  // Tell the player once if their controller isn't in the browser's standard layout
+  if (state.started && pad.connected && pad.layout === 'guessed' && !warnedLayout) {
+    warnedLayout = true;
+    hud.message('Controller detected with a non-standard layout. If it misbehaves, press F2 (or Controller setup on the main menu) to map it.', true);
+  }
   const padActive = pad.active(now);
   if (padActive !== !!hud.padMode) hud.setMode(rts.active, padActive);
   if (pad.connected) document.getElementById('padPrompt').classList.remove('hidden');

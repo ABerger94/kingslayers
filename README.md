@@ -49,9 +49,14 @@ npm run dev        # http://localhost:5173
 
 ### Xbox controller
 
-Plug in or pair an Xbox controller (or any controller the browser lists as "standard") and press any
-button. On-screen hints switch to controller buttons while you're using it. Supports rumble in
-Chrome and Edge.
+Plug in or pair an Xbox controller and press any button. On-screen hints switch to controller buttons
+while you're using it. Supports rumble in Chrome and Edge.
+
+Some browser/connection combinations (often Bluetooth) report the controller in a non-standard layout.
+The game detects this and adapts automatically. If the view drifts, buttons do the wrong thing or the
+D-pad doesn't respond, open **Controller setup** (button on the main menu, or **F2** in game) and press
+each control when asked. The mapping is saved in your browser, and the screen also shows a live
+readout of the raw controller input.
 
 | Field | |
 |---|---|

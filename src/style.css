@@ -132,3 +132,12 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
 #difficulty { margin-top: 14px; display: flex; gap: 14px; align-items: center; font-size: 13px; }
 #difficulty span { color: var(--rebel); font-weight: 600; }
 #difficulty label { cursor: pointer; }
+
+.overlay button.secondary { background: #2a2620; border-color: #5c4a2b; margin-left: 8px; }
+#padSetup { z-index: 20; }
+#padSetup h2 { margin: 0 0 4px; color: var(--rebel); letter-spacing: .08em; }
+#padSetupPrompt { font-size: 22px; font-weight: 700; margin: 14px 0 4px; color: #fff; min-height: 30px; }
+#padSetupProgress { font-size: 12px; opacity: .7; min-height: 16px; }
+#padSetupLive { background: rgba(0,0,0,0.35); padding: 8px; border-radius: 4px; font-size: 11px; white-space: pre-wrap; min-height: 34px; }
+#padSetup .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+#padSetup .row button { margin: 0; }
