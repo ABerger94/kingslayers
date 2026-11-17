@@ -1,7 +1,13 @@
 // Keyboard / mouse state shared by the shooter and command modes.
+import { Gamepad } from './gamepad.js';
+
 export class Input {
   constructor(canvas) {
     this.canvas = canvas;
+    this.pad = new Gamepad();
+    this.virtual = new Set(); // keys held by the controller
+    this.padHeld = { left: false, right: false }; // mouse buttons held by the controller
+    this.padSprint = false;
     this.keys = new Set();
     this.pressed = new Set(); // keys pressed this frame
     this.mouse = { x: 0, y: 0, dx: 0, dy: 0, left: false, right: false, wheel: 0, leftClicked: false, rightClicked: false, leftReleased: false };
@@ -15,6 +21,9 @@ export class Input {
     addEventListener('blur', () => this.keys.clear());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     addEventListener('mousemove', (e) => {
+      // Releasing pointer lock can fire a synthetic move with no movement (often at 0,0); ignoring it
+      // keeps the controller cursor where it is. Real mouse movement always has a non-zero delta.
+      if (!e.movementX && !e.movementY) return;
       this.mouse.x = e.clientX; this.mouse.y = e.clientY;
       // Chrome occasionally reports a huge bogus delta right after pointer lock engages
       if (this.locked && Math.abs(e.movementX) < 250 && Math.abs(e.movementY) < 250) {
@@ -33,7 +42,7 @@ export class Input {
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === canvas; });
   }
 
-  down(code) { return this.keys.has(code); }
+  down(code) { return this.keys.has(code) || this.virtual.has(code); }
   hit(code) { return this.pressed.has(code); }
 
   lock() { if (!this.locked) this.canvas.requestPointerLock?.(); }

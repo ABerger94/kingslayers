@@ -9,6 +9,7 @@ import { Player } from './player.js';
 import { Support } from './support.js';
 import { Rts } from './rts.js';
 import { Hud } from './hud.js';
+import { BTN, applyFieldBindings, applyCommandBindings, releasePadButtons } from './gamepad.js';
 import { SNAP_STRIDE, TEAM_REBEL, TEAM_CROWN, ST_DEAD, ST_ROUT } from '../shared/constants.js';
 
 const canvas = document.getElementById('game');
@@ -47,6 +48,11 @@ const ui = {
 const rts = new Rts(scene, camera, input, send, ui);
 player.onMessage = (t, bad) => hud.message(t, bad);
 player.onHit = () => { hud.hitmarker(); audio.hit(); };
+player.onRumble = (strong, weak, ms) => input.pad.rumble(strong, weak, ms);
+input.pad.onConnect = (id, connected) => {
+  document.getElementById('padPrompt').classList.toggle('hidden', !connected);
+  if (state.started) hud.message(connected ? 'Controller connected.' : 'Controller disconnected.', !connected);
+};
 support.onMessage = (t) => hud.message(t);
 
 for (const b of hud.el.orderButtons.children) {
@@ -141,15 +147,18 @@ document.getElementById('startBtn').addEventListener('click', () => {
 canvas.addEventListener('click', () => { if (state.started && !rts.active && !state.outcome) input.lock(); });
 
 function toggleMode() {
+  releasePadButtons(input);
   if (rts.active) {
     rts.exit();
     send({ t: 'timescale', v: 1 });
     input.lock();
   } else {
     rts.enter(player.pos);
+    // Start the (controller) cursor in the middle of the screen rather than at a screen edge
+    input.mouse.x = innerWidth / 2; input.mouse.y = innerHeight / 2;
     send({ t: 'timescale', v: 0.3 }); // the world slows while you think
   }
-  hud.setMode(rts.active);
+  hud.setMode(rts.active, input.pad.active(performance.now()));
 }
 
 // ------------------------------------------------------------------ frame loop
@@ -188,6 +197,13 @@ function frame() {
   const now = performance.now();
   const realDt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  const pad = input.pad;
+  pad.poll(now);
+  const padActive = pad.active(now);
+  if (padActive !== !!hud.padMode) hud.setMode(rts.active, padActive);
+  if (pad.connected) document.getElementById('padPrompt').classList.remove('hidden');
+  if (!state.started && (pad.hit(BTN.A) || pad.hit(BTN.MENU))) document.getElementById('startBtn').click();
+  if (state.outcome && !document.getElementById('outcome').classList.contains('hidden') && (pad.hit(BTN.A) || pad.hit(BTN.MENU))) location.reload();
   if (!state.started) {
     // Slow flyover behind the menu
     const t = now / 1000;
@@ -196,12 +212,15 @@ function frame() {
     renderer.render(scene, camera);
     return;
   }
+  if (rts.active) applyCommandBindings(pad, input, rts, realDt);
+  else applyFieldBindings(pad, input);
   if (input.hit('Tab') && !state.outcome) toggleMode();
   const scale = rts.active ? (rts.paused ? 0 : 0.3) : 1;
   const dt = realDt * scale;
 
+  const shakeBefore = fx.shake;
   const fieldActive = !rts.active && !state.outcome;
-  player.update(rts.active ? dt : realDt, input, army, camera, state.time, fieldActive);
+  player.update(rts.active ? dt : realDt, input, army, camera, state.time, fieldActive, !rts.active);
   if (rts.active) rts.update(dt, realDt, army, support);
   else if (fieldActive) {
     if (input.hit('KeyZ')) support.callAirstrike(player.aimPoint.clone());
@@ -209,6 +228,9 @@ function frame() {
   }
   support.update(dt, camera.position);
   fx.update(dt);
+  // Rumble on nearby explosions (shake jumps when one goes off)
+  if (fx.shake > shakeBefore + 0.05) pad.rumble(Math.min(1, fx.shake), Math.min(1, fx.shake * 0.7), 350);
+  hud.updatePadCursor(rts.active && padActive, input.mouse.x, input.mouse.y);
 
   // Tell the simulation where we are and who we shot
   send({ t: 'player', p: player.simState() });

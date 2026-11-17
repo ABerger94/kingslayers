@@ -47,6 +47,7 @@
       <div id="supplies"></div>
     </div>
     <div id="selbox"></div>
+    <div id="padCursor"></div>
     <div id="pauseTag" class="hidden">TACTICAL PAUSE — <kbd>Space</kbd> to resume</div>
   </div>
 
@@ -85,7 +86,26 @@
           </ul>
         </div>
       </div>
-      <button id="startBtn">Deploy</button>
+      <details id="padHelp">
+        <summary>Xbox controller</summary>
+        <div class="cols">
+          <ul>
+            <li><b>Field:</b> left stick move · right stick look</li>
+            <li><kbd>LT</kbd> aim · <kbd>RT</kbd> fire · <kbd>LB</kbd>/<kbd>RB</kbd> switch weapon</li>
+            <li><kbd>X</kbd> reload · <kbd>Y</kbd> enter/exit SUV · hold <kbd>A</kbd> or click <kbd>L3</kbd> sprint</li>
+            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> rifle · <kbd>▼</kbd> launcher</li>
+            <li>In the SUV: <kbd>RT</kbd> gas · <kbd>LT</kbd> brake/reverse · <kbd>B</kbd> handbrake</li>
+          </ul>
+          <ul>
+            <li><b>Command:</b> <kbd>View</kbd> switch modes · <kbd>Menu</kbd> pause</li>
+            <li>left stick pan · right stick cursor · <kbd>LT</kbd>/<kbd>RT</kbd> zoom</li>
+            <li><kbd>A</kbd> select (hold to drag a box) · <kbd>B</kbd> move/attack order</li>
+            <li><kbd>LB</kbd>/<kbd>RB</kbd> cycle regiments · <kbd>L3</kbd> select all · <kbd>R3</kbd> back to AI</li>
+            <li><kbd>X</kbd> hold · <kbd>Y</kbd> palisade · <kbd>▲</kbd> advance · <kbd>▼</kbd> retreat · <kbd>◀</kbd>/<kbd>▶</kbd> strikes</li>
+          </ul>
+        </div>
+      </details>
+      <button id="startBtn">Deploy</button> <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
       <p id="loading" class="hidden">Raising armies…</p>
     </div>
   </div>

@@ -15,7 +15,7 @@ export class Hud {
       weaponName: $('weaponName'), ammo: $('ammo'), weaponSlots: $('weaponSlots'), abilities: $('abilities'),
       minimap: $('minimap'), modeTag: $('modeTag'), rtsPanel: $('rtsPanel'), regList: $('regList'), selInfo: $('selInfo'),
       orderButtons: $('orderButtons'), supplies: $('supplies'), selbox: $('selbox'), pauseTag: $('pauseTag'),
-      vignette: $('vignette'), hitmarker: $('hitmarker'), crosshair: $('crosshair'),
+      vignette: $('vignette'), hitmarker: $('hitmarker'), crosshair: $('crosshair'), padCursor: $('padCursor'),
     };
     this.mm = this.el.minimap.getContext('2d');
     this.el.weaponSlots.innerHTML = WEAPONS.map((w, k) => `<span data-w="${k}">${k + 1} ${w.short}</span>`).join('');
@@ -65,9 +65,20 @@ export class Hud {
     for (const b of this.el.orderButtons.children) b.classList.toggle('on', b.dataset.cmd === mode);
   }
 
-  setMode(rts) {
-    this.el.modeTag.innerHTML = rts ? 'COMMAND — <kbd>Tab</kbd> back to the field' : 'FIELD — <kbd>Tab</kbd> command view';
+  setMode(rts, pad = this.padMode) {
+    this.rtsMode = rts;
+    this.padMode = pad;
+    const key = pad ? '<kbd>View ⧉</kbd>' : '<kbd>Tab</kbd>';
+    this.el.modeTag.innerHTML = rts ? `COMMAND — ${key} back to the field` : `FIELD — ${key} command view`;
     this.el.crosshair.style.display = rts ? 'none' : '';
+    document.body.classList.toggle('pad', !!pad);
+  }
+
+  // Show the controller cursor in command mode
+  updatePadCursor(visible, x, y) {
+    const c = this.el.padCursor;
+    c.style.display = visible ? 'block' : 'none';
+    if (visible) c.style.transform = `translate(${x}px, ${y}px)`;
   }
 
   update({ time, strength, regiments, heroes, player, support, supplies, rtsActive, rts, counts }) {
@@ -96,8 +107,12 @@ export class Hud {
       e.ammo.textContent = `${a.mag} / ${a.reserve}`;
     }
     for (const s of e.weaponSlots.children) s.classList.toggle('on', +s.dataset.w === player.weapon);
+    const padKeys = { airstrike: '◀', gunship: '▶', suv: 'Y' };
     for (const a of e.abilities.children) {
       const k = a.dataset.a;
+      const kb = a.querySelector('kbd');
+      const label = this.padMode ? padKeys[k] : (SUPPORT[k] ? SUPPORT[k].key : 'F');
+      if (kb.textContent !== label) kb.textContent = label;
       if (k === 'suv') {
         a.querySelector('.t').textContent = !player.suv.alive ? 'wrecked' : player.inVehicle ? 'driving' : player.pos.distanceTo(player.suv.pos) < 5 ? 'enter' : '';
         a.classList.toggle('ready', player.suv.alive);

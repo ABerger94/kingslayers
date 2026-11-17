@@ -106,3 +106,9 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
   #abilities { left: 16px; bottom: auto; top: 100px; flex-direction: column; }
   #topbar .bar { width: 90px; }
 }
+
+#padCursor { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; display: none; border: 2px solid var(--rebel); border-radius: 50%; box-shadow: 0 0 0 1px #000, inset 0 0 0 1px #000; z-index: 5; }
+#padCursor::after { content: ''; position: absolute; left: 7px; top: 7px; width: 4px; height: 4px; background: var(--rebel); border-radius: 50%; }
+#padHelp { margin-top: 12px; font-size: 13px; }
+#padHelp summary { cursor: pointer; color: var(--rebel); font-weight: 600; }
+#padPrompt { margin-left: 10px; opacity: .8; }
