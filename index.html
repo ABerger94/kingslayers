@@ -117,8 +117,27 @@
         <label><input type="radio" name="diff" value="knight" checked> Knight</label>
         <label><input type="radio" name="diff" value="kingslayer"> Kingslayer</label>
       </div>
-      <button id="startBtn">Deploy</button> <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
+      <button id="startBtn">Deploy</button>
+      <button id="padSetupOpen" class="secondary">🎮 Controller setup</button> <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
       <p id="loading" class="hidden">Raising armies…</p>
+    </div>
+  </div>
+
+  <div id="padSetup" class="overlay hidden">
+    <div class="card">
+      <h2>Controller setup</h2>
+      <p class="kicker" id="padSetupInfo"></p>
+      <p>If your controller aims by itself, buttons do the wrong thing, or the D-pad doesn't respond,
+        map it here: press each control when asked. The mapping is saved in this browser.</p>
+      <div id="padSetupPrompt"></div>
+      <div id="padSetupProgress"></div>
+      <pre id="padSetupLive"></pre>
+      <div class="row">
+        <button id="padSetupStart">Start mapping</button>
+        <button id="padSetupSkip" class="secondary">Skip this one</button>
+        <button id="padSetupReset" class="secondary">Clear saved mapping</button>
+        <button id="padSetupClose">Close</button>
+      </div>
     </div>
   </div>
 

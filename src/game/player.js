@@ -133,6 +133,8 @@ export class Player {
     this.camera = null;
     this.aimPoint = new THREE.Vector3();
     this.camShake = 0;
+    this.recoil = 0; // temporary upward kick from firing; recovers on its own
+    this.assist = 1; // smoothed controller aim-assist slowdown
     // sword state
     this.swing = null;
     this.combo = 0; this.comboT = 0;
@@ -170,6 +172,7 @@ export class Player {
       return;
     }
     if (time - this.lastHurt > 4 && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + 18 * dt);
+    this.recoil *= Math.exp(-dt * 9);
 
     if (active) {
       const sens = this.aiming ? 0.0012 : 0.0024;
@@ -177,9 +180,11 @@ export class Player {
       this.pitch -= input.mouse.dy * sens;
       // Controller look: rate-based, slower when aiming down sights, with light aim assist
       const pad = input.pad;
+      // Aim assist eases in and out instead of snapping, so the stick doesn't feel sticky/jerky
+      const wantAssist = this.aimOnEnemy && !this.inVehicle && !this.melee ? 0.6 : 1;
+      this.assist += (wantAssist - this.assist) * Math.min(1, dt * 6);
       if (pad.connected && (pad.rx || pad.ry)) {
-        const assist = this.aimOnEnemy && !this.inVehicle && !this.melee ? 0.55 : 1;
-        const rate = (this.aiming ? 1.4 : 3.0) * assist;
+        const rate = (this.aiming ? 1.4 : 3.0) * this.assist;
         // squared response curve gives fine control near the centre
         const cx = pad.rx * Math.abs(pad.rx), cy = pad.ry * Math.abs(pad.ry);
         this.yaw -= cx * rate * dt;
@@ -370,7 +375,8 @@ export class Player {
     else if (this.aiming) { dist = 1.9; side = 0.75; height = 1.6; }
     else if (this.melee) { dist = 4.8; side = 0.6; height = 1.8; }
     else { dist = 4.2; side = 0.9; height = 1.65; }
-    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    const pitch = Math.min(0.95, this.pitch + this.recoil);
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const fwd = this._v.set(Math.sin(this.yaw) * cp, sp, Math.cos(this.yaw) * cp);
     const right = this._d.set(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
     const head = new THREE.Vector3(target.x, target.y + height, target.z);
@@ -594,9 +600,9 @@ export class Player {
     this.fx.muzzle(muzzle, base, w.pellets > 1);
     this.camShake = w.pellets > 1 ? 0.6 : 0.15;
     if (w.pellets > 1) this.onRumble?.(0.8, 0.6, 160); else this.onRumble?.(0.15, 0.35, 50);
-    // Recoil
-    this.pitch += w.pellets > 1 ? 0.05 : 0.006;
-    this.yaw += (Math.random() - 0.5) * 0.004;
+    // Recoil: a kick that springs back, so holding the trigger doesn't walk the aim into the sky
+    this.recoil = Math.min(0.12, this.recoil + (w.pellets > 1 ? 0.06 : 0.012));
+    this.yaw += (Math.random() - 0.5) * 0.002;
     const spread = this.aiming ? w.aimSpread : w.spread;
     let anyHit = false;
     for (let p = 0; p < w.pellets; p++) {
