@@ -2,7 +2,7 @@
 // the Depot (the Handler's shop), the army roster, and the keep (prisoners).
 import {
   ITEMS, GUN_IDS, BUILDINGS, BEACON_UPGRADES, MISSIONS, SQUAD_TYPES,
-  saveCampaign, missionStatus, count, popCap, armySize, canAfford, pay, costText, production,
+  saveCampaign, missionStatus, count, popCap, armySize, canAfford, pay, costText, production, reinforceCost,
   prisonerAction, endingOptions, chooseEnding, ENDINGS, log,
 } from './campaign.js';
 
@@ -283,7 +283,12 @@ export class Hub {
   armyHtml() {
     const c = this.c;
     const barracks = count(c, 'barracks');
-    const rows = c.squads.map((s) => `<tr><td>${esc(s.name)}</td><td>${SQUAD_TYPES[s.type].label}</td><td>${s.men}</td><td>${'★'.repeat(s.vet)}${'☆'.repeat(3 - s.vet)}</td><td>${s.lieutenant ? esc(s.lieutenant) : '—'}</td></tr>`).join('');
+    const rows = c.squads.map((s) => {
+      const rf = reinforceCost(s);
+      const can = rf.missing > 0 && canAfford(c, rf.cost) && armySize(c) + rf.missing <= popCap(c);
+      const btn = rf.missing > 0 ? `<button data-reinforce="${s.id}" ${can ? '' : 'disabled'} title="${costText(rf.cost)}">Reinforce +${rf.missing} (${costText(rf.cost)})</button>` : '<span class="small">full strength</span>';
+      return `<tr><td>${esc(s.name)}</td><td>${SQUAD_TYPES[s.type].label}</td><td>${s.men}/${SQUAD_TYPES[s.type].men}</td><td>${'★'.repeat(s.vet)}${'☆'.repeat(3 - s.vet)}</td><td>${s.lieutenant ? esc(s.lieutenant) : '—'}</td><td>${btn}</td></tr>`;
+    }).join('');
     const recruit = Object.entries(SQUAD_TYPES).map(([t, d]) => {
       const cost = { food: d.food, wood: d.wood };
       const needB = d.needsBarracks || 1;
@@ -291,8 +296,8 @@ export class Hub {
       const why = barracks < needB ? `needs ${needB} barracks` : armySize(c) + d.men > popCap(c) ? 'build houses for population' : costText(cost);
       return `<button data-recruit="${t}" ${ok ? '' : 'disabled'}><b>${d.label}</b> (${d.men} men)<br><small>beats ${d.beats} · ${why}</small></button>`;
     }).join('');
-    return `<div class="army"><table><tr><th>Squad</th><th>Type</th><th>Men</th><th>Veterancy</th><th>Lieutenant</th></tr>${rows || '<tr><td colspan="5">No squads. Recruit some!</td></tr>'}</table>
-      <p class="small">Population ${armySize(c)}/${popCap(c)}. Squads that survive battles become veterans and fight harder. Lieutenants (recruited prisoners) steady their squad's morale.</p>
+    return `<div class="army"><table><tr><th>Squad</th><th>Type</th><th>Men</th><th>Veterancy</th><th>Lieutenant</th><th></th></tr>${rows || '<tr><td colspan="5">No squads. Recruit some!</td></tr>'}</table>
+      <p class="small">Population ${armySize(c)}/${popCap(c)}. Squads that survive battles become veterans and fight harder; reinforcing a squad keeps its veterancy. Many of the men you lose in battle are only wounded and rejoin afterwards. Lieutenants (recruited prisoners) steady their squad's morale.</p>
       <h3>Recruit ${barracks ? '' : '<small>(build a Barracks in the settlement first)</small>'}</h3><div class="recruit">${recruit}</div></div>`;
   }
 
@@ -361,6 +366,14 @@ export class Hub {
       const name = `${['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'][c.nextSquad % 8]} ${names[c.nextSquad % names.length]}`;
       c.squads.push({ id: c.nextSquad++, name, type: t.dataset.recruit, men: d.men, vet: 0, battles: 0 });
       log(c, `Recruited ${name}.`);
+      this.save(); this.render(); return;
+    }
+    if (t.dataset.reinforce) {
+      const s = c.squads.find((q) => q.id === +t.dataset.reinforce);
+      const rf = reinforceCost(s);
+      pay(c, rf.cost);
+      s.men += rf.missing;
+      log(c, `${s.name} reinforced to full strength.`);
       this.save(); this.render(); return;
     }
     if (t.dataset.pris !== undefined) {
