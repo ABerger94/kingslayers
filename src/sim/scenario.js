@@ -25,7 +25,7 @@ const R = TEAM_REBEL, C = TEAM_CROWN;
 export const DIFFICULTY = {
   squire: { crown: 0.8, label: 'Squire' },
   knight: { crown: 1.0, label: 'Knight' },
-  kingslayer: { crown: 1.2, label: 'Kingslayer' },
+  kingslayer: { crown: 1.2, label: 'Warlord' }, // id kept so existing saves still load
 };
 
 const FIRST = ['John', 'Thomas', 'Richard', 'William', 'Hugh', 'Robert', 'Walter', 'Ralph', 'Henry', 'Edmund', 'Roger', 'Nicholas', 'Geoffrey', 'Simon'];

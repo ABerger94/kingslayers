@@ -1,7 +1,5 @@
 # TIMEFALL: Crown & Caliber
 
-*(working title; the repository is still called `kingslayers`)*
-
 A single-player third-person shooter / real-time strategy hybrid. A rogue time-traveller, **the Usurper**,
 has broken history. You are sent back to Owain Glyndŵr's rebellion in 1403 with a rifle and **the Handler**
 in your ear, who runs the **Depot** and sends gear from the future in exchange for the silver you loot.

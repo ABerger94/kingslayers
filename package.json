@@ -1,8 +1,8 @@
 {
-  "name": "kingslayers",
+  "name": "timefall",
   "version": "0.1.0",
   "private": true,
-  "description": "Kingslayers: a third-person shooter / real-time strategy hybrid set at the Battle of Shrewsbury, 1403.",
+  "description": "TIMEFALL: Crown & Caliber, a third-person shooter / real-time strategy hybrid set in Owain Glyndwr's rebellion, 1403.",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader native",
