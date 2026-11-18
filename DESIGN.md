@@ -1,132 +1,100 @@
-# Kingslayers: Design Document
+# TIMEFALL: Crown & Caliber — implementation notes
 
-## 1. Pitch
+The design lives in *Kingmakers-Style Single-Player Game — Design Doc* (Nov 18, 2026). This file tracks how
+the prototype maps onto it, what is built, and what's next.
 
-It is 1403. Owain Glyndŵr's Welsh rebellion is at its height and Harry "Hotspur" Percy has turned against
-King Henry IV. History says Hotspur dies at Shrewsbury and the rebellion withers. A collapse cascade in 2031
-has been traced back to that morning, so one operative is sent back with a modern arsenal to change it.
+## Engine decision
 
-**Pillars**
-1. **Scale you can feel.** Thousands of soldiers on the field at once, each one simulated.
-2. **One player, two lenses.** Fight in the mud as a shooter, then pull up and command the war as an RTS
-   without a loading screen. Time slows while you think.
-3. **Asymmetric power and fragile people.** Your weapons are overwhelming, but you are one person with
-   finite ammunition. Medieval soldiers are not bullet sponges: they panic, flee and defect, and terror is a
-   weapon in its own right.
+The doc recommends Unity DOTS or Unreal Mass for a shipping game, and notes a Three.js browser build is only
+realistic as a prototype. This repository is that prototype: Three.js renderer plus a battle simulation on a
+Web Worker. The simulation turned out cheaper than the doc feared. About 2 ms per 50 ms tick for 3,000
+individually simulated soldiers on one core, so we kept per-soldier AI rather than switching to squad-level
+brains, and default battles to the doc's 500–1,500 soldier target for readability (Shrewsbury offers an
+"Epic" ~3,300 option). The architecture (data-oriented sim, flow fields, instanced crowds) ports directly to
+DOTS/Mass if we move engines.
 
-## 2. Core loop
+## Vertical slice checklist (doc section 6)
 
-```
- ┌─────────────── FIELD (TPS) ───────────────┐        Tab         ┌──────────── COMMAND (RTS) ────────────┐
- │ shoot, drive, call support                │ ─────────────────▶ │ time ×0.3 (or paused)                 │
- │ break formations at key points            │                    │ select regiments, move / attack       │
- │ protect Hotspur                           │ ◀───────────────── │ build palisades, call strikes at mouse │
- └───────────────────────────────────────────┘        Tab         └───────────────────────────────────────┘
-```
+| Item | Status |
+|---|---|
+| Hero: move, shoot (2 guns), parry, sledgehammer | ✅ 2-gun loadout + longsword; arm buckler parries blows/arrows with a gun out; sledgehammer staggers knights |
+| Command mode toggle with slow-mo, 4 unit types, move/attack/hold | ✅ 20% slow-mo, plus charge, follow me, retreat and line/wedge/shield wall formations |
+| 300–500 soldiers with morale + routing | ✅ raid ~260, defense up to ~500, Shrewsbury ~1,500 (Epic 3,300) |
+| One battle map with a destructible palisade | ✅ plus a destructible castle (walls, gate) |
+| Tiny settlement: 4 buildings + Temporal Beacon | ✅ House, Farm, Lumber Mill, Barracks, free placement; Beacon levels 1–4 |
+| Shop with 5 items incl. one vehicle and one airstrike | ✅ the Depot: 10 items over 4 tiers incl. Armoured SUV, gunship, airstrike |
+| Officer capture + 2 prisoner choices | ✅ capture wounded officers (incl. Prince Hal); Ransom, Interrogate, Recruit, Execute |
 
-The two modes share one world. Your body stays on the field while you command, so royal soldiers can still
-reach it. This keeps the switch tense rather than a free pause.
+## Systems (doc section 4)
 
-**Phases:**
-1. *The field.* An archery duel, then the royal infantry and knights advance.
-2. *The assault.* When the royal field army drops below 30% fighting strength, the rebel AI marches on the
-   castle. Royal troops inside hold the courtyard until the walls are breached.
-3. *The breach.* Wall sections (2,600 HP) and the gate (1,800 HP) are destructible. Breaching charges and
-   airstrikes do it fast; rebel soldiers pressed against the gate batter it down slowly while the wall
-   archers shoot them.
-4. *The King.* King Henry IV and his guard stand before the keep.
+**4.1 Hero combat.** Guns: pistol, shotgun, assault rifle, sniper, grenade launcher (SMG, RPG and crossbow
+are next). Caliber vs armor: peasants drop to anything; mail needs a rifle; plate needs the sniper, a headshot,
+the hammer or explosives, and bullets visibly glance off plate. Stowed guns reload themselves; total ammo is
+limited per mission, with **supply crates** as call-ins. **Downed state**: you bleed out for 18 s while your
+bodyguard squad (which follows you everywhere) tries to drag you clear. On Squire you're medevaced; otherwise
+the mission fails.
 
-**Win:** kill King Henry IV. **Lose:** Hotspur dies, or the rebel army falls below 12%.
-**Twist:** at 2:00 Owain Glyndŵr arrives from the west with the Welsh host. Historically he never came.
+**4.2 Command.** Orders: move, advance (attack-move), attack, hold, **charge** (run + morale boost), **follow
+me**, retreat, return to AI. Formations: line; wedge (+20% melee damage); shield wall (65% speed, arrows do
+40%, melee 75%). Rock-paper-scissors: spears ×3 vs cavalry, swords ×1.5 vs spears, cavalry ×1.5 vs archers.
+*Lieutenants* exist as named prisoners recruited to lead a squad (morale bonus); their AI personalities
+(Aggressive/Defensive/Flanker) are next.
 
-## 3. Units (medieval)
+**4.3 Morale & loyalty.** Per-squad morale (shown in the roster). Officers falling breaks nearby
+formations. **Fear of the Thunder-Stick**: gunfire and explosion terror starts at full strength and fades
+15% per mission as the enemy adapts. Executions boost morale for one battle but cost reputation and loyalty;
+low loyalty causes desertions. The operative and lieutenants steady nearby troops.
 
-| Type | Role | Notes |
-|---|---|---|
-| Longbowmen | ranged volleys to 150 m | arrows are real ballistic projectiles; skirmish back from melee |
-| Men-at-Arms | heavy infantry | armoured, slow, the anvil |
-| Spearmen / Billmen | anti-cavalry | 3× damage against horse |
-| Knights | shock cavalry | charge bonus above 5.5 m/s; hunt archers, ride down fleeing men |
-| Commanders | Hotspur, Henry IV, Prince Hal, Glyndŵr | morale aura (40 m); a commander's death sends a shock through the whole army |
+**4.4 Settlement.** Free placement on a hand-drawn settlement map. House (+40 population), Farm (+45 food per
+mission), Lumber Mill (+45 wood), Barracks (recruit; two for cavalry), Temporal Beacon (Depot tier). The
+settlement is **attacked between missions**: after the first raid, and sometimes after convoy raids, you must
+defend Sycharth, and the buildings you placed appear around the Beacon in 3D.
 
-Soldiers are grouped into **regiments** that keep formation slots around a moving anchor. The anchor waits
-for stragglers (cohesion), so blocks advance as blocks and dissolve into melee once in contact.
+**4.5 Economy.** Food and wood from buildings (spent on buildings and recruits); silver from loot pouches
+dropped by fallen knights, kill bounties, mission rewards and ransoms (spent at the Depot and on the Beacon);
+intel from interrogation (spent to sabotage the next enemy army by 10% per point, and to reveal enemy
+strength in briefings). Relics are not in yet.
 
-## 3b. The royal castle
+**4.6 Prisoners.** Officers who fall to anything but explosives are wounded and pulse gold; press E to
+capture. Choices feed reputation, loyalty, instability (executing royalty) and the ending.
 
-A curtain wall laid out on the navigation grid: 22×14 cells (88×56 m), round towers at the corners, the
-middle of each side and flanking the gatehouse, plus an indestructible keep. Every wall and gate cell is a
-blocked, destructible nav cell, so breaching one re-opens pathfinding through it automatically (the cached
-flow fields are invalidated). Wall archers (the *garrison*) stand at 8 m. They can't be reached in melee or
-by the SUV, arrows aimed at them fly at the right height, and they fall when their wall section goes.
-Melee soldiers don't chase enemies on the other side of a wall (line-of-sight check on the nav grid).
+**4.7 Timeline Instability.** As in the README: modern gear, killing/capturing historical figures and
+changing major events (Hotspur surviving Shrewsbury) raise it; low-tech missions lower it. 30% handgonnes,
+60% rival agents, 80% time storms, 100% collapse.
 
-## 4. Modern arsenal
+**4.8 Progression.** Army veterancy: squads that survive keep their names and gain stars (morale and damage).
+Hero XP and the relic skill tree are next.
 
-| Asset | Effect | Limits |
-|---|---|---|
-| Assault rifle | hitscan, headshots ×2.5 | 30-round magazine, 300 reserve |
-| Combat shotgun | 10 pellets, range falloff | 8 shells |
-| Grenade launcher | 7 m blast, knock-back, mass panic | 6 rounds, 30 reserve |
-| Armoured SUV | ramming kills, ignores arrows | 1,500 HP; knights and spearmen slow it |
-| Attack helicopter | 30 s orbit, minigun bursts and rockets | 80 s cooldown |
-| Airstrike | 5-bomb line, 10 m blasts | 50 s cooldown |
-| Longsword | combo, spin, charged heavy, lunge, block; kills rally nearby rebels | unlimited, but you have to get close |
-| Breaching charge (C4) | 4 s fuse, blows open walls and gates | 3 carried, restocked at the SUV |
+**4.9 Vehicles.** Armoured SUV (rams, resupplies, crashes into walls), gunship and airstrike call-ins. Dirt
+bike, truck with turret and tank are next.
 
-Explosions do more than damage. They drain morale up to 2.8× the blast radius and erode royal loyalty, so
-the right strike at the right moment routs a regiment without killing most of it.
+## Campaign (doc section 5)
 
-## 5. Morale and loyalty
+Act 1: The Hanmer Raid → Reprisal at Sycharth. Act 2: Royal Silver Convoy (repeatable, escalating) and
+Shrewsbury (field battle + siege). Act 4 endings, gated by instability and reputation: Restore history
+(< 35%), Crown a new king (< 80%), Take the crown yourself (≥ 50% or ruthless), Timeline collapse (100%).
+Post-game: Endless Siege. The doc's full 4-act, ~25-mission structure (Act 3 sieges with trebuchets and
+tanks; the Usurper as a boss) is the next big content push.
 
-Each soldier has **morale** (will to fight now) and **loyalty** (to their side).
-
-* Morale drifts with local odds (allies against enemies within 10 m), a nearby commander, regimental losses,
-  and proximity to the operative.
-* Shocks: a comrade dying nearby, gunfire, explosions, a commander's death.
-* Below 0.2 a soldier **routs** and flees toward his own baggage lines. Routers rally above 0.55 if no enemy
-  is within 18 m; routers who reach the map edge leave the battle.
-* Routing royal soldiers with loyalty below 0.35 may **defect** and join a rebel *Turncoats* regiment.
-
-## 6. Technical architecture
+## Technical architecture
 
 ```
  main thread                                         simulation worker (src/sim)
  ───────────                                         ───────────────────────────
- render (Three.js, instancing)   ◀── snapshot 20 Hz ── Sim.step(): grid → commanders → regiments →
- player, weapons, hit tests                             per-soldier think → integrate → arrows
- command UI, HUD                 ── commands ───────▶  orders, damage, explosions, palisades
+ render (Three.js, instancing)   ◀── snapshot 20 Hz ── Sim.step(): grid → commanders → mission → regiments →
+ hero, weapons, hit tests                               per-soldier think → integrate → arrows → storms
+ command UI, HUD, campaign hub   ── commands ───────▶  orders, formations, damage, explosions, capture
 ```
 
-* **Data-oriented sim.** Soldiers are struct-of-arrays typed arrays. The spatial hash rebuild is a counting
-  sort with no allocations. Typical cost is about 2 ms per tick for 3,000 soldiers.
-* **Pathfinding with flow fields.** A 160×160 nav grid (river, woods, palisades). Dijkstra integration fields
-  are cached per goal (LRU) and shared by every soldier heading there. A straight-line check skips the field
-  when the way is clear.
-* **Staggered thinking.** Target searches and morale updates run about twice a second per soldier, spread
-  across ticks. Archers pick targets per regiment to avoid 150 m neighbour queries.
-* **Rendering.** One `InstancedMesh` per (unit type × livery/gear part): 10 draw calls for the whole army.
-  Team colour is per-instance, so defectors change colour for free. Animation is procedural (bob, lean, death
-  fall), interpolated between 20 Hz snapshots. Arrows are instanced too.
-* **Player authority split.** The main thread hit-tests bullets against interpolated positions (capsule test)
-  and sends `damage` / `explode` messages. The worker is authoritative for everything else.
+* `src/shared/` (terrain, castle layout, mission catalogue) is used by both threads.
+* `src/sim/scenario.js` builds each mission from a config (difficulty, squads, instability, fear, sabotage).
+* `src/game/campaign.js` holds the campaign rules and save; `hub.js` the between-mission screens.
+* Struct-of-arrays soldiers, counting-sort spatial hash, cached Dijkstra flow fields, staggered thinking.
 
-### Scaling past one worker (next step)
-The per-soldier `think()` phase only reads shared state and writes that soldier's own fields, except damage,
-which can be emitted as events. That makes it straightforward to split across N workers with
-`SharedArrayBuffer` (this needs COOP/COEP headers): partition soldier ranges per worker, merge damage events
-on the coordinator, then integrate. The target is 10,000+ soldiers.
+## Next (in the doc's suggested order)
 
-## 7. Roadmap
-
-1. **Campaign.** Linked battles across 1403–1405 (Shrewsbury → Battle of Grosmont → Siege of Harlech), with a
-   strategic map, Glyndŵr's parliament at Machynlleth, and a timeline meter showing how far history has shifted.
-2. **Logistics.** Ammunition is the core strategic resource. Supply drops are rare, and you can recover
-   munitions from the SUV.
-3. **More assets:** sniper rifle, drones for scouting in command view, mortar teams, night-vision night raids.
-4. **Counter-play:** royal commanders learn. They spread out after airstrikes, use mantlets against gunfire,
-   and dig pits against the SUV.
-5. **Siege and building:** stakes against cavalry, trenches, field guns crafted by "your" smiths.
-6. **Content and art:** skinned, animated soldiers (GPU vertex animation textures), heraldry per regiment,
-   audio barks, weather (the real battle was fought in the late afternoon).
-7. **Multi-worker simulation** (section 6) and LOD impostors for 10k+ soldiers.
+1. Lieutenant AI personalities and squad groups; berserker and late-game hybrid units (musketeers, engineers).
+2. More missions per act (rescue, escort, siege with trebuchets/tank), the Usurper as a recurring boss.
+3. Hero XP classes (Marksman, Commander, Engineer, Juggernaut) and the relic skill tree.
+4. More gear: SMG, RPG, crossbow, dirt bike, truck with turret, machine-gun nests and turrets.
+5. Engine port decision (Unity DOTS vs Unreal Mass) once the loop is proven fun.

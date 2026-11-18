@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Kingslayers — Shrewsbury 1403</title>
+  <title>Timefall — Crown &amp; Caliber</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -21,6 +21,10 @@
     </div>
     <div id="heroes"></div>
     <div id="objectives"></div>
+    <div id="timeline" title="Timeline Instability"><span>TIMELINE</span><div class="bar"><i id="timelineBar"></i></div><b id="timelineVal">0%</b></div>
+    <div id="interact" class="hidden"></div>
+    <div id="downed" class="hidden"><h2>DOWN</h2><p id="downedText"></p><div class="bar"><i id="downedBar"></i></div></div>
+    <div id="lootTag"></div>
     <div id="streak"></div>
 
     <div id="feed"></div>
@@ -43,8 +47,13 @@
       <div id="orderButtons">
         <button data-cmd="hold" title="Hold position (H)">Hold <kbd>H</kbd></button>
         <button data-cmd="advance" title="Attack-move to the next right-click (A)">Advance <kbd>A</kbd></button>
+        <button data-cmd="charge" title="Charge the next right-click target at a run (C)">Charge <kbd>C</kbd></button>
+        <button data-cmd="follow" title="Follow the operative (F)">Follow me <kbd>F</kbd></button>
         <button data-cmd="retreat" title="Fall back toward our lines (R)">Retreat <kbd>R</kbd></button>
         <button data-cmd="auto" title="Hand back to the AI general (G)">AI Control <kbd>G</kbd></button>
+        <button data-cmd="f-line" title="Line formation (1)">Line <kbd>1</kbd></button>
+        <button data-cmd="f-wedge" title="Wedge: hits harder in melee (2)">Wedge <kbd>2</kbd></button>
+        <button data-cmd="f-shieldwall" title="Shield wall: slow, but arrows barely hurt (3)">Shield wall <kbd>3</kbd></button>
         <button data-cmd="build" title="Build a palisade: click start, click end (B)">Palisade <kbd>B</kbd></button>
       </div>
       <div id="supplies"></div>
@@ -56,72 +65,88 @@
 
   <div id="intro" class="overlay">
     <div class="card">
-      <p class="kicker">Operation KINGSLAYER · Insertion: Shropshire, 21 July 1403</p>
-      <h1>KINGSLAYERS</h1>
+      <p class="kicker">The Welsh March · 1403</p>
+      <h1>TIMEFALL</h1>
+      <p class="subtitle">Crown &amp; Caliber</p>
       <p>
-        In 2031 a collapse cascade traced back through six centuries of history converged on one morning:
-        the Battle of Shrewsbury. Harry "Hotspur" Percy rides against King Henry IV with the Welsh rebel
-        Owain Glyndŵr's army still days away. History says Hotspur dies here and the rebellion withers.
+        A rogue time-traveller, <b>the Usurper</b>, has broken history. You are sent back to Owain Glyndŵr's
+        rebellion with a rifle and a voice in your ear, <b>the Handler</b>, who runs the Depot and sends you
+        gear from the future in exchange for the silver you loot.
       </p>
       <p>
-        You have been sent back with everything the chrono-lift could carry. <b>Keep Hotspur alive, break the
-        royal army in the field, then storm the castle where King Henry waits, and kill him.</b>
-        Hold out long enough and Glyndŵr may yet arrive.
+        Fight on the front line, zoom out to command your army, build up your settlement, take prisoners,
+        and steer history toward the ending you choose. But every piece of modern tech you use
+        <b>fractures the timeline</b>.
       </p>
-      <div class="cols">
-        <div>
-          <h3>Field (shooter)</h3>
-          <ul>
-            <li><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Mouse</kbd> aim</li>
-            <li><kbd>LMB</kbd> fire · <kbd>RMB</kbd> aim down sights · <kbd>R</kbd> reload</li>
-            <li><kbd>1</kbd> rifle · <kbd>2</kbd> shotgun · <kbd>3</kbd> launcher · <kbd>4</kbd>/<kbd>Q</kbd> longsword</li>
-            <li><b>Sword:</b> click combo (3rd hit spins) · hold to charge a heavy blow · sprint + click to lunge · <kbd>RMB</kbd> block</li>
-            <li><kbd>G</kbd> breaching charge (C4) · <kbd>Z</kbd> airstrike · <kbd>X</kbd> gunship</li>
-            <li><kbd>F</kbd> enter / exit the armoured SUV — stand next to it to resupply</li>
-          </ul>
-        </div>
-        <div>
-          <h3>Command (strategy)</h3>
-          <ul>
-            <li><kbd>Tab</kbd> switch to command view (time slows)</li>
-            <li><kbd>LMB</kbd> / drag select your regiments</li>
-            <li><kbd>RMB</kbd> ground: move · <kbd>RMB</kbd> enemy: attack</li>
-            <li><kbd>H</kbd> hold · <kbd>A</kbd> advance · <kbd>R</kbd> retreat · <kbd>G</kbd> hand back to AI</li>
-            <li><kbd>B</kbd> palisade · <kbd>Space</kbd> tactical pause · <kbd>WASD</kbd>/wheel camera</li>
-          </ul>
-        </div>
+      <div class="titleButtons">
+        <button id="continueBtn" class="hidden">Continue campaign</button>
+        <button id="newCampaignBtn">New campaign</button>
+        <button id="startBtn" class="secondary">Quick battle: Shrewsbury</button>
+        <button id="padSetupOpen" class="secondary">🎮 Controller setup</button>
+        <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
       </div>
-      <details id="padHelp">
-        <summary>Xbox controller</summary>
-        <div class="cols">
-          <ul>
-            <li><b>Field:</b> left stick move · right stick look</li>
-            <li><kbd>LT</kbd> aim · <kbd>RT</kbd> fire · <kbd>LB</kbd>/<kbd>RB</kbd> switch weapon</li>
-            <li><kbd>X</kbd> reload · <kbd>Y</kbd> enter/exit SUV · hold <kbd>A</kbd> or click <kbd>L3</kbd> sprint</li>
-            <li><kbd>B</kbd> sword ⇄ gun · sword: <kbd>RT</kbd> tap combo / hold heavy · <kbd>LT</kbd> block</li>
-            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> C4 · <kbd>▼</kbd> launcher</li>
-            <li>In the SUV: <kbd>RT</kbd> gas · <kbd>LT</kbd> brake/reverse · <kbd>B</kbd> handbrake</li>
-          </ul>
-          <ul>
-            <li><b>Command:</b> <kbd>View</kbd> switch modes · <kbd>Menu</kbd> pause</li>
-            <li>left stick pan · right stick cursor · <kbd>LT</kbd>/<kbd>RT</kbd> zoom</li>
-            <li><kbd>A</kbd> select (hold to drag a box) · <kbd>B</kbd> move/attack order</li>
-            <li><kbd>LB</kbd>/<kbd>RB</kbd> cycle regiments · <kbd>L3</kbd> select all · <kbd>R3</kbd> back to AI</li>
-            <li><kbd>X</kbd> hold · <kbd>Y</kbd> palisade · <kbd>▲</kbd> advance · <kbd>▼</kbd> retreat · <kbd>◀</kbd>/<kbd>▶</kbd> strikes</li>
-          </ul>
-        </div>
-      </details>
       <div id="difficulty">
         <span>Difficulty</span>
         <label><input type="radio" name="diff" value="squire"> Squire</label>
         <label><input type="radio" name="diff" value="knight" checked> Knight</label>
-        <label><input type="radio" name="diff" value="kingslayer"> Kingslayer</label>
+        <label><input type="radio" name="diff" value="kingslayer"> Warlord</label>
       </div>
-      <button id="startBtn">Deploy</button>
-      <button id="padSetupOpen" class="secondary">🎮 Controller setup</button> <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
+      <details id="controlsHelp">
+        <summary>Controls</summary>
+        <div class="cols">
+          <div>
+            <h3>Field (shooter)</h3>
+            <ul>
+              <li><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Mouse</kbd> aim · <kbd>LMB</kbd> fire · <kbd>RMB</kbd> aim/block</li>
+              <li><kbd>1</kbd>/<kbd>2</kbd> your two guns · <kbd>3</kbd> or <kbd>Q</kbd> longsword · <kbd>R</kbd> reload (stowed guns reload themselves)</li>
+              <li>Hold <kbd>C</kbd> arm buckler (parry blows &amp; arrows, even with a gun) · <kbd>V</kbd> sledgehammer bash (staggers knights)</li>
+              <li><kbd>E</kbd> capture a wounded officer · <kbd>T</kbd> supply drop · <kbd>G</kbd> breaching charge</li>
+              <li><kbd>Z</kbd> airstrike · <kbd>X</kbd> gunship · <kbd>F</kbd> enter/exit SUV</li>
+              <li>Sword: click combo, hold for a heavy blow, sprint + click to lunge</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Command (strategy)</h3>
+            <ul>
+              <li><kbd>Tab</kbd> command view: time slows to 20% · <kbd>Space</kbd> pause</li>
+              <li><kbd>LMB</kbd>/drag select · <kbd>RMB</kbd> move / attack</li>
+              <li><kbd>H</kbd> hold · <kbd>A</kbd> advance · <kbd>C</kbd> charge · <kbd>F</kbd> follow me · <kbd>R</kbd> retreat · <kbd>G</kbd> back to AI</li>
+              <li><kbd>1</kbd> line · <kbd>2</kbd> wedge · <kbd>3</kbd> shield wall · <kbd>B</kbd> palisade</li>
+            </ul>
+          </div>
+        </div>
+        <div class="cols">
+          <ul>
+            <li><b>Controller, field:</b> sticks move/look · <kbd>LT</kbd> aim/block · <kbd>RT</kbd> fire/swing</li>
+            <li><kbd>LB</kbd> hold buckler · <kbd>RB</kbd> next weapon · <kbd>B</kbd> sword ⇄ gun · <kbd>R3</kbd> sledgehammer</li>
+            <li><kbd>X</kbd> reload · <kbd>Y</kbd> capture / enter SUV · hold <kbd>A</kbd> or <kbd>L3</kbd> sprint</li>
+            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> C4 · <kbd>▼</kbd> supply drop</li>
+          </ul>
+          <ul>
+            <li><b>Controller, command:</b> <kbd>View</kbd> switch · <kbd>Menu</kbd> pause · left stick pan · right stick cursor</li>
+            <li><kbd>A</kbd> select · <kbd>B</kbd> order · <kbd>X</kbd> hold · <kbd>Y</kbd> charge · <kbd>▲</kbd> advance · <kbd>▼</kbd> retreat</li>
+            <li><kbd>LB</kbd>/<kbd>RB</kbd> cycle squads · <kbd>L3</kbd> select all · <kbd>R3</kbd> next formation · <kbd>LT</kbd>/<kbd>RT</kbd> zoom</li>
+          </ul>
+        </div>
+      </details>
       <p id="loading" class="hidden">Raising armies…</p>
     </div>
   </div>
+
+  <div id="hub" class="hidden">
+    <div id="hubTop"></div>
+    <div id="hubTabs">
+      <button data-tab="campaign">Campaign</button>
+      <button data-tab="settlement">Settlement</button>
+      <button data-tab="depot">Depot</button>
+      <button data-tab="army">Army</button>
+      <button data-tab="keep">Keep <span class="badge"></span></button>
+    </div>
+    <div id="hubBody"></div>
+    <div id="hubToast"></div>
+  </div>
+
+  <div id="results" class="overlay hidden"><div class="card"></div></div>
 
   <div id="padSetup" class="overlay hidden">
     <div class="card">

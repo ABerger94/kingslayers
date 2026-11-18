@@ -1,16 +1,14 @@
-# Kingslayers
+# TIMEFALL: Crown & Caliber
 
-A third-person shooter / real-time strategy hybrid. You are a modern special-operations soldier
-sent back to **the Battle of Shrewsbury, 21 July 1403**, with an assault rifle, a shotgun, a grenade
-launcher, a longsword, breaching charges, an armoured SUV, an attack helicopter and airstrikes.
+A single-player third-person shooter / real-time strategy hybrid. A rogue time-traveller, **the Usurper**,
+has broken history. You are sent back to Owain Glyndŵr's rebellion in 1403 with a rifle and **the Handler**
+in your ear, who runs the **Depot** and sends gear from the future in exchange for the silver you loot.
 
-**Objectives:** keep Harry "Hotspur" Percy alive, break King Henry IV's army in the field, breach the
-royal castle (C4, airstrikes, or let your soldiers batter down the gate) and kill the King inside.
-Choose Squire, Knight or Kingslayer difficulty on the intro screen.
+Fight on the front line, zoom out to command your army, build your settlement, take prisoners, and steer
+history toward the ending you choose. But every piece of modern tech you use **fractures the timeline**.
 
-Every battle is a live simulation of ~3,000 soldiers (up to ~3,600 once Owain Glyndŵr's Welsh arrive),
-each with their own targeting, pathfinding, morale and loyalty, running on a Web Worker thread
-separate from rendering.
+Built to the vertical slice in *Kingmakers-Style Single-Player Game — Design Doc* (Nov 2026). See
+[DESIGN.md](DESIGN.md) for what is implemented and what is next.
 
 ## Play
 
@@ -19,80 +17,93 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-`npm run build` produces a static site in `dist/` that can be hosted anywhere.
+On the title screen choose **New campaign**, **Continue campaign**, or **Quick battle: Shrewsbury**
+(the full battle with the full arsenal, outside the campaign). The campaign saves in your browser.
+
+### The campaign loop
+
+1. **Campaign map:** pick a mission (raid, settlement defense, field battle and siege), choose your two guns, deploy.
+2. **Battle:** fight in third person, switch to command view, loot silver, capture wounded officers.
+3. **Settlement:** place buildings freely (House, Farm, Lumber Mill, Barracks) around the **Temporal Beacon**,
+   upgrade the Beacon to unlock better Depot tiers, recruit squads.
+4. **Depot:** spend silver on guns, call-ins (supply drops, gunship, airstrikes), C4 and the armoured SUV.
+5. **Keep:** decide each prisoner's fate: Ransom, Interrogate, Recruit (as a lieutenant), or Execute.
+
+Act 1: *The Hanmer Raid* → *Reprisal at Sycharth* (defend your settlement). Act 2: repeatable *Royal Silver
+Convoy* raids and *Shrewsbury, 21 July 1403* (field battle, then storm the castle and kill the King).
+Your Timeline Instability and your choices decide the ending. Post-game: **Endless Siege**.
+
+### Timeline Instability
+
+A 0–100% meter. Modern gear raises it (a pistol barely; airstrikes a lot), and so does killing or capturing
+historical figures. Light-touch missions let history heal. As it rises, the past fights back:
+
+| Instability | Effect |
+|---|---|
+| 30%+ | royal archers field crude **handgonnes** |
+| 60%+ | **the Usurper's agents**, rival time-travellers with rifles, hunt you |
+| 80%+ | **time storms** strike the battlefield |
+| 100% | **timeline collapse**: game over |
 
 ### Controls
 
 | Field (shooter) | |
 |---|---|
-| WASD / Shift | move / sprint |
-| Mouse, LMB, RMB | aim, fire, aim down sights |
-| 1 / 2 / 3 / 4, wheel | assault rifle / shotgun / grenade launcher / longsword |
-| Q | quick-swap between sword and your last gun |
-| Sword | click for a 3-hit combo (the third is a spin), hold to charge a heavy blow, sprint + click to lunge, RMB to block blows and arrows from the front. Sword kills rally nearby rebels |
-| R | reload |
-| G | breaching charge (C4, 4-second fuse; sticks to walls in front of you). 3 carried |
-| Z | airstrike on the crosshair |
-| X | attack helicopter support |
-| F | enter / exit the armoured SUV (ram through formations). Standing next to it resupplies ammo, health and C4 |
-| **Tab** | switch to command view |
+| WASD / Shift / mouse | move / sprint / aim |
+| LMB · RMB | fire · aim (sniper scope) / block with the sword |
+| 1 / 2 · 3 or Q | your two guns · longsword |
+| Hold C | **arm buckler**: parry blows and arrows from the front, even while holding a gun |
+| V | **sledgehammer** bash: staggers even armoured knights |
+| E | capture a wounded officer (they pulse gold on the ground) |
+| R | reload (stowed guns reload themselves; total ammo is limited, so call in supply drops) |
+| T · G | supply drop at your aim point · breaching charge |
+| Z · X · F | airstrike · gunship · enter/exit the SUV |
+| Tab | command view (time slows to 20%) |
 
 | Command (strategy) | |
 |---|---|
-| LMB / drag | select your regiments (or click them in the roster) |
-| RMB ground / enemy | move / attack that regiment |
-| H · A · R · G | hold · advance (attack-move) · retreat · hand back to AI |
-| B | build a palisade (click start, click end) |
-| Z / X | airstrike / gunship at the mouse |
-| Space | tactical pause; time runs at 30% in command view anyway |
-| WASD, Q/E, wheel | pan, rotate, zoom |
+| LMB / drag · RMB | select squads · move / attack |
+| H · A · C · F · R · G | hold · advance · **charge** · **follow me** · retreat · back to AI |
+| 1 · 2 · 3 | **line** · **wedge** (hits harder) · **shield wall** (slow; arrows barely hurt) |
+| B · Space | palisade · tactical pause |
+
+Armor matters: pistols drop archers and spearmen; men-at-arms need a rifle; plate knights need the sniper,
+a headshot, the sledgehammer or explosives. Swordsmen beat spearmen, spearmen beat cavalry, cavalry beat
+archers.
 
 ### Xbox controller
 
-Plug in or pair an Xbox controller and press any button. On-screen hints switch to controller buttons
-while you're using it. Supports rumble in Chrome and Edge.
-
-Some browser/connection combinations (often Bluetooth) report the controller in a non-standard layout.
-The game detects this and adapts automatically. If the view drifts, buttons do the wrong thing or the
-D-pad doesn't respond, open **Controller setup** (button on the main menu, or **F2** in game) and press
-each control when asked. The mapping is saved in your browser, and the screen also shows a live
-readout of the raw controller input.
+Press any button on the controller. On-screen hints switch to it while you're using it.
 
 | Field | |
 |---|---|
-| Left stick / right stick | move (analog) / look, with light aim assist |
-| LT / RT | aim down sights / fire (sword: block / tap combo, hold heavy) |
-| LB / RB · B | previous / next weapon · sword ⇄ gun |
-| D-pad ▲ / ▼ | breaching charge / grenade launcher |
-| X · Y | reload · enter/exit SUV |
-| hold A or click L3 | sprint |
-| D-pad ◀ / ▶ | airstrike / gunship |
-| In the SUV | RT gas, LT brake/reverse, left stick steer, B handbrake |
+| Sticks · LT · RT | move/look · aim/block · fire/swing |
+| LB (hold) · RB · B · R3 | buckler · next weapon · sword ⇄ gun · sledgehammer |
+| X · Y | reload · capture an officer (when close) / enter the SUV |
+| Hold A or L3 | sprint |
+| D-pad ◀ ▶ ▲ ▼ | airstrike · gunship · C4 · supply drop |
 | View | command mode |
 
 | Command | |
 |---|---|
-| Left stick / right stick | pan camera / move cursor |
-| LT / RT | zoom out / in |
-| A (hold and move to box-select) · B | select · move or attack order (B also cancels building) |
-| LB / RB · L3 · R3 | cycle regiments · select all · hand back to AI |
-| X · Y · D-pad ▲ ▼ | hold · palisade · advance · retreat |
-| D-pad ◀ / ▶ | airstrike / gunship at the cursor |
+| Left / right stick · LT/RT | pan / cursor · zoom |
+| A · B | select · order |
+| X · Y · ▲ · ▼ | hold · charge · advance · retreat |
+| LB/RB · L3 · R3 | cycle squads · select all · next formation |
 | Menu · View | pause · back to the field |
+
+If the controller misbehaves (aim drifts, D-pad does nothing), open **Controller setup** on the title screen
+(or press **F2** in game) and map it. It's saved in the browser.
 
 ### Troubleshooting
 
-`EPERM: operation not permitted ... node_modules\.vite-temp` on Windows: update to the latest code
-(the scripts now load the config without writing that temp file), or run `npx vite --configLoader native`.
+`EPERM: operation not permitted ... node_modules\\.vite-temp` on Windows: update to the latest code (the
+scripts load the config without writing that temp file), or run `npx vite --configLoader native`.
 
 ## Tests and benchmark
 
 ```bash
-npm test           # 60 s headless battle with sanity checks, plus a siege test
-                   # (field army removed: rebels must batter the gate and kill the King)
-npm run bench      # full AI-vs-AI battle, reports tick cost
+npm test                                             # battle sanity test + castle siege test
+node tools/headless-battle.mjs --mission=raid        # also: convoy, defense, endless, shrewsbury
+node tools/headless-battle.mjs --mission=raid --instability=90   # handgonnes, agents, time storms
 ```
-
-The simulation runs at roughly 2 ms per 50 ms tick for 3,000 soldiers on one core.
-
-See [DESIGN.md](DESIGN.md) for the game design and architecture.

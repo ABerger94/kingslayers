@@ -12,7 +12,12 @@ import { Hud } from './hud.js';
 import { CastleView } from './castleView.js';
 import { PadSetup } from './padSetup.js';
 import { BTN, applyFieldBindings, applyCommandBindings, releasePadButtons } from './gamepad.js';
-import { SNAP_STRIDE, TEAM_REBEL, TEAM_CROWN, ST_DEAD, ST_ROUT } from '../shared/constants.js';
+import { SNAP_STRIDE, TEAM_REBEL, TEAM_CROWN, ST_DEAD, ST_ROUT, CAVALRY, HERO } from '../shared/constants.js';
+import { MISSIONS } from '../shared/missions.js';
+import { loadCampaign, saveCampaign, newCampaign, clearCampaign, missionConfig, applyResults, ITEMS } from './campaign.js';
+import { Hub, showResults } from './hub.js';
+import { buildSettlementScene } from './settlementView.js';
+import { setStructure, cellOf } from './structures.js';
 
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -114,6 +119,11 @@ function handleEvent(ev) {
   switch (ev.t) {
     case 'death': {
       const d = Math.hypot(camera.position.x - ev.x, camera.position.z - ev.z);
+      if (ev.i < army.n && army.teamOf[ev.i] === TEAM_CROWN && !army.agentOf[ev.i]) {
+        const type = army.typeOf[ev.i];
+        if (type === CAVALRY || type === HERO) dropPouch(ev.x, ev.z, 15 + Math.floor(Math.random() * 25));
+        else if (Math.random() < 0.08) dropPouch(ev.x, ev.z, 4 + Math.floor(Math.random() * 8));
+      }
       if (d < 150 && ev.cause !== 'player') fx.blood(ev.x, groundY(ev.x, ev.z) + 1.1, ev.z, 4);
       if (ev.cause === 'player' || ev.cause === 'explosion' || ev.cause === 'sword') {
         // kills in quick succession build a streak
@@ -129,7 +139,42 @@ function handleEvent(ev) {
     case 'heroDeath':
       hud.bigBanner(`${ev.name} has fallen!`);
       hud.message(`${ev.name} has been slain!`, ev.team === TEAM_REBEL);
+      // Killing historical figures changes history
+      if (ev.name === 'King Henry IV') addInstability(12, 'A king dies before his time');
       break;
+    case 'officerDown':
+      if (ev.team === TEAM_CROWN && Math.hypot(player.pos.x - ev.x, player.pos.z - ev.z) < 140) hud.message(`${ev.rank} ${ev.name} has fallen wounded. Capture him!`);
+      if (ev.name === 'Prince Hal') { hud.bigBanner('Prince Hal is down! Capture him or finish him.', 4000); }
+      break;
+    case 'captured':
+      battle.prisoners.push({ name: ev.name, rank: ev.rank, value: ev.value, hero: ev.hero });
+      hud.message(`${ev.name} taken prisoner. He'll be held at your keep.`);
+      if (ev.hero) addInstability(6, 'The future Henry V in chains');
+      break;
+    case 'agentShot': {
+      const y = groundY(ev.x, ev.z) + 1.5;
+      const ty = ev.hit ? player.pos.y + 1.3 : groundY(ev.tx, ev.tz) + 1;
+      fx.tracer(new THREE.Vector3(ev.x, y, ev.z), new THREE.Vector3(ev.tx + (ev.hit ? 0 : (Math.random() - 0.5) * 4), ty, ev.tz + (ev.hit ? 0 : (Math.random() - 0.5) * 4)), [0.7, 0.6, 1]);
+      if (Math.hypot(camera.position.x - ev.x, camera.position.z - ev.z) < 160) audio.minigun();
+      break;
+    }
+    case 'agentDown': hud.message('One of the Usurper\'s agents is down.'); break;
+    case 'gunsmoke':
+      if (Math.hypot(camera.position.x - ev.x, camera.position.z - ev.z) < 220) fx.smoke(ev.x, groundY(ev.x, ev.z) + 1.6, ev.z, 3, 0.6, 0.8, 1.6);
+      break;
+    case 'storm': {
+      // a time storm: purple lightning out of a clear sky
+      const gy = groundY(ev.x, ev.z);
+      for (let k = 0; k < 3; k++) fx.tracer(new THREE.Vector3(ev.x + (Math.random() - 0.5) * 6, gy + 160, ev.z + (Math.random() - 0.5) * 6), new THREE.Vector3(ev.x, gy, ev.z), [0.8, 0.5, 1]);
+      fx.explosion(ev.x, ev.z, 5, camera.position);
+      audio.explosion(Math.hypot(camera.position.x - ev.x, camera.position.z - ev.z));
+      break;
+    }
+    case 'wave':
+      hud.bigBanner(ev.of ? `Wave ${ev.n} of ${ev.of}` : `Wave ${ev.n}`, 3000);
+      audio.fanfare();
+      break;
+    case 'waveCleared': battle.wavesCleared = ev.n; hud.message(`Wave ${ev.n} beaten back!`); break;
     case 'routing': {
       const r = state.regiments.find((q) => q.id === ev.reg);
       if (r) hud.message(`${r.name} ${r.team === TEAM_REBEL ? 'are breaking!' : 'are fleeing the field!'}`, r.team === TEAM_REBEL);
@@ -137,6 +182,7 @@ function handleEvent(ev) {
     }
     case 'forts': forts.add(ev.cells); if (ev.cells.length) hud.message(`Palisade raised (${ev.cells.length * 4} m).`); break;
     case 'cellGone':
+      if (ev.type === 6) { battle.settlement?.destroyBeacon(fx, camera.position); setStructure(ev.cell, 0); audio.explosion(0); break; }
       if (!forts.remove(ev.cell)) castle.destroy(ev.cell, ev.type, camera.position);
       break;
     case 'phase':
@@ -152,6 +198,31 @@ function handleEvent(ev) {
 function showOutcome(ev) {
   if (state.outcome) return;
   state.outcome = ev.outcome;
+  if (battle.campaign) {
+    // Shrewsbury: keeping Hotspur alive rewrites a major event
+    const hot = heroesInfo()?.find((h) => h.name === 'Harry Hotspur');
+    if (battle.mission === 'shrewsbury' && ev.outcome === 'victory' && hot && hot.hp > 0) battle.instGain += 8;
+    const squadsAlive = {};
+    for (const r of state.regiments) if (r.squadId !== null && r.squadId !== undefined) squadsAlive[r.squadId] = r.alive;
+    const kills = state.stats ? state.stats.playerKills : 0;
+    const result = {
+      mission: battle.mission, outcome: ev.outcome, text: ev.text,
+      silver: battle.loot + kills, loot: battle.loot, kills,
+      prisoners: battle.prisoners, squadsAlive,
+      instabilityGain: battle.instGain, highTech: battle.highTech,
+      stockUsed: { ...support.used, c4: (player.stockUsed && player.stockUsed.c4) || 0 },
+      wavesCleared: battle.wavesCleared,
+    };
+    hud.bigBanner(ev.outcome === 'victory' ? 'VICTORY' : 'DEFEAT', 4000);
+    if (ev.outcome === 'victory') audio.fanfare();
+    setTimeout(() => {
+      input.unlock();
+      const summary = applyResults(campaign, result);
+      saveCampaign(campaign);
+      showResults(result, summary, () => location.reload());
+    }, 2500);
+    return;
+  }
   setTimeout(() => {
     input.unlock();
     document.getElementById('outcome').classList.remove('hidden');
@@ -166,22 +237,155 @@ function showOutcome(ev) {
   if (ev.outcome === 'victory') audio.fanfare();
 }
 
-// ------------------------------------------------------------------ start
-document.getElementById('startBtn').addEventListener('click', () => {
+// ------------------------------------------------------------------ title screen, campaign and battle start
+let campaign = loadCampaign();
+let hub = null;
+// What happens in this battle that matters to the campaign
+const battle = { campaign: false, mission: 'classic', loot: 0, prisoners: [], instBase: 0, instGain: 0, highTech: false, wavesCleared: 0, warned: 0, settlement: null };
+const selectedDifficulty = () => document.querySelector('input[name="diff"]:checked')?.value || 'knight';
+if (campaign) document.getElementById('continueBtn').classList.remove('hidden');
+
+function openHub() {
+  document.getElementById('intro').classList.add('hidden');
+  hub = new Hub(campaign, {
+    onDeploy: (id, opts) => deployMission(id, opts),
+    onQuit: (reset) => { if (reset) clearCampaign(); location.reload(); },
+  });
+  hub.show();
+}
+document.getElementById('continueBtn').addEventListener('click', () => { audio.init(); openHub(); });
+document.getElementById('newCampaignBtn').addEventListener('click', () => {
+  if (campaign && !confirm('Start a new campaign? Your current campaign will be lost.')) return;
   audio.init();
+  campaign = newCampaign(selectedDifficulty());
+  saveCampaign(campaign);
+  openHub();
+});
+// Quick battle: the full Shrewsbury battle with the full arsenal, outside the campaign
+document.getElementById('startBtn').addEventListener('click', () => {
+  const difficulty = selectedDifficulty();
+  startBattle({ mission: 'classic', difficulty }, {
+    loadout: ['rifle', 'shotgun', 'launcher'], stock: { airstrike: Infinity, gunship: Infinity, supply: Infinity }, c4: 3, suv: true, canRespawn: true,
+  });
+});
+
+function deployMission(id, opts) {
+  const c = campaign;
+  const sabotage = Math.min(opts.sabotage || 0, c.res.intel);
+  c.res.intel -= sabotage;
+  saveCampaign(c);
+  battle.campaign = true;
+  battle.instBase = c.instability;
+  const loadout = c.loadout.filter((g) => c.owned[g]);
+  if (!loadout.length) loadout.push('pistol');
+  hub.hide();
+  startBattle(missionConfig(c, id, { ...opts, sabotage }), {
+    loadout, stock: { airstrike: c.stock.airstrike || 0, gunship: c.stock.gunship || 0, supply: c.stock.supply || 0 },
+    c4: c.stock.c4 || 0, suv: !!c.owned.suv, canRespawn: c.difficulty === 'squire', buildings: c.buildings,
+  });
+}
+
+function startBattle(cfg, setup) {
+  audio.init();
+  battle.mission = cfg.mission;
+  const meta = MISSIONS[cfg.mission];
+  document.getElementById('intro').classList.add('hidden');
   document.getElementById('loading').classList.remove('hidden');
-  const difficulty = document.querySelector('input[name="diff"]:checked')?.value || 'knight';
-  player.damageTaken = DAMAGE_TAKEN[difficulty] ?? 1;
-  send({ t: 'start', seed: 1403, difficulty });
+  // the operative's kit
+  player.setLoadout(setup.loadout);
+  hud.setLoadout(player.loadout);
+  player.damageTaken = DAMAGE_TAKEN[cfg.difficulty] ?? 1;
+  player.canRespawn = setup.canRespawn;
+  player.c4 = setup.c4;
+  player.c4Max = Math.max(3, setup.c4);
+  support.stock = { ...setup.stock };
+  const techCost = Object.fromEntries(Object.entries(ITEMS).map(([k, v]) => [k, v.inst]));
+  player.techCost = battle.campaign ? techCost : {};
+  support.techCost = battle.campaign ? { airstrike: ITEMS.airstrike.inst, gunship: ITEMS.gunship.inst, supply: ITEMS.supply.inst } : {};
+  player.spawn.set(meta.spawn.x, 0, meta.spawn.z);
+  player.pos.copy(player.spawn);
+  player.pos.y = groundY(player.pos.x, player.pos.z);
+  player.camInit = false;
+  if (setup.suv) {
+    player.suv.pos.set(meta.suv.x, 0, meta.suv.z);
+    player.suv.pos.y = groundY(meta.suv.x, meta.suv.z);
+    player.suv.model.position.copy(player.suv.pos);
+  } else {
+    player.suv.alive = false;
+    player.suv.model.visible = false;
+  }
+  hud.setSuvAvailable(setup.suv);
+  hud.el.timeline.classList.toggle('hidden', !battle.campaign);
+  // your settlement appears around the Beacon when you defend it
+  if (meta.beacon) {
+    battle.settlement = buildSettlementScene(scene, meta.beacon, setup.buildings || []);
+    setStructure(cellOf(meta.beacon.x, meta.beacon.z), 11);
+  }
+  send({ t: 'start', seed: cfg.mission === 'convoy' ? Math.floor(Math.random() * 1e6) : 1403, config: cfg });
   setTimeout(() => {
-    document.getElementById('intro').classList.add('hidden');
+    document.getElementById('loading').classList.add('hidden');
     hud.el.hud.classList.remove('hidden');
     state.started = true;
     input.lock();
-    hud.bigBanner('Shrewsbury · 21 July 1403', 4000);
-    hud.message('Royal archers are drawing their bows. Keep Hotspur alive!');
+    hud.bigBanner(meta.title, 4000);
+    if (cfg.mission === 'classic' || cfg.mission === 'shrewsbury') hud.message('Royal archers are drawing their bows. Keep Hotspur alive!');
+    else if (meta.beacon) hud.message('Raise palisades and hold the line: Tab for command view, then B to build.');
+    else hud.message('Wound the royal officers (not with explosives) and press E to capture them.');
   }, 150);
-});
+}
+
+// ------------------------------------------------------------------ Timeline Instability (doc 4.7)
+function addInstability(amount, reason) {
+  if (!battle.campaign || !amount) return;
+  battle.instGain += amount;
+  if (amount >= 0.5) battle.highTech = true;
+  const v = battle.instBase + battle.instGain;
+  const thresholds = [[25, 'Handler: "Careful. The timeline is starting to notice you."'], [50, 'Handler: "Instability at fifty percent. Expect… anomalies."'], [75, 'Handler: "Seventy-five percent! The Usurper can track you now."'], [90, 'Handler: "Ninety! Ease off the modern toys or there won\'t be a future to go home to!"']];
+  for (const [t, msg] of thresholds) if (v >= t && battle.warned < t) { battle.warned = t; hud.message(msg, true); audio.radio(); }
+  if (reason) hud.message(`${reason} (+${amount.toFixed(0)}% instability)`, true);
+  if (v >= 100 && !state.outcome) {
+    send({ t: 'pause', v: true });
+    showOutcome({ outcome: 'defeat', text: 'The timeline has collapsed. Too much of the future bled into 1403.' });
+  }
+}
+player.onTech = (a) => addInstability(a);
+support.onTech = (a) => addInstability(a);
+player.onCapture = (i) => send({ t: 'capture', i });
+player.onBledOut = () => {
+  if (state.outcome) return;
+  send({ t: 'pause', v: true });
+  showOutcome({ outcome: 'defeat', text: 'You bled out before your bodyguard could reach you. The mission has failed.' });
+};
+
+// ------------------------------------------------------------------ loot: silver pouches dropped by fallen knights
+const pouchGeo = new THREE.DodecahedronGeometry(0.22, 0);
+const pouchMat = new THREE.MeshPhongMaterial({ color: 0xe8c050, emissive: 0x6a4a10, shininess: 90 });
+const pouches = [];
+function dropPouch(x, z, value) {
+  if (pouches.length > 160) return;
+  const m = new THREE.Mesh(pouchGeo, pouchMat);
+  m.position.set(x + (Math.random() - 0.5), groundY(x, z) + 0.35, z + (Math.random() - 0.5));
+  scene.add(m);
+  pouches.push({ m, value, t: 0 });
+}
+function updatePouches(dt) {
+  for (let k = pouches.length - 1; k >= 0; k--) {
+    const p = pouches[k];
+    p.t += dt;
+    p.m.rotation.y += dt * 2;
+    p.m.position.y = groundY(p.m.position.x, p.m.position.z) + 0.35 + Math.sin(p.t * 3) * 0.08;
+    if (!player.alive) continue;
+    const dx = player.pos.x - p.m.position.x, dz = player.pos.z - p.m.position.z, d = Math.hypot(dx, dz);
+    const reach = player.inVehicle ? 4 : 6;
+    if (d < reach) { p.m.position.x += dx / d * dt * 12; p.m.position.z += dz / d * dt * 12; }
+    if (d < 1.4) {
+      battle.loot += p.value;
+      audio.tone(1500 + Math.random() * 400, 0.08, 0.05, 'triangle', 1.3);
+      scene.remove(p.m);
+      pouches.splice(k, 1);
+    }
+  }
+}
 canvas.addEventListener('click', () => { if (state.started && !rts.active && !state.outcome) input.lock(); });
 
 function toggleMode() {
@@ -194,7 +398,7 @@ function toggleMode() {
     rts.enter(player.pos);
     // Start the (controller) cursor in the middle of the screen rather than at a screen edge
     input.mouse.x = innerWidth / 2; input.mouse.y = innerHeight / 2;
-    send({ t: 'timescale', v: 0.3 }); // the world slows while you think
+    send({ t: 'timescale', v: 0.2 }); // the world slows to 20% while you think
   }
   hud.setMode(rts.active, input.pad.active(performance.now()));
 }
@@ -209,7 +413,7 @@ function heroesInfo() {
   if (!snap) return null;
   const out = [];
   for (const r of state.regiments) {
-    if (r.hero < 0 || r.hero === undefined) continue;
+    if (r.hero < 0 || r.hero === undefined || r.agent) continue;
     const k = r.hero * SNAP_STRIDE;
     if (k >= snap.length) continue;
     const st = (snap[k + 3] >> 4) & 7;
@@ -247,8 +451,9 @@ function frame() {
   const padActive = pad.active(now);
   if (padActive !== !!hud.padMode) hud.setMode(rts.active, padActive);
   if (pad.connected) document.getElementById('padPrompt').classList.remove('hidden');
-  if (!state.started && (pad.hit(BTN.A) || pad.hit(BTN.MENU))) document.getElementById('startBtn').click();
-  if (state.outcome && !document.getElementById('outcome').classList.contains('hidden') && (pad.hit(BTN.A) || pad.hit(BTN.MENU))) location.reload();
+  const onTitle = !state.started && !document.getElementById('intro').classList.contains('hidden');
+  if (onTitle && (pad.hit(BTN.A) || pad.hit(BTN.MENU))) document.getElementById(campaign ? 'continueBtn' : 'newCampaignBtn').click();
+  if (state.outcome && (!document.getElementById('outcome').classList.contains('hidden') || !document.getElementById('results').classList.contains('hidden')) && (pad.hit(BTN.A) || pad.hit(BTN.MENU))) location.reload();
   if (!state.started) {
     // Slow flyover behind the menu
     const t = now / 1000;
@@ -258,9 +463,9 @@ function frame() {
     return;
   }
   if (rts.active) applyCommandBindings(pad, input, rts, realDt);
-  else applyFieldBindings(pad, input);
+  else applyFieldBindings(pad, input, { canCapture: player.capturable >= 0 });
   if (input.hit('Tab') && !state.outcome) toggleMode();
-  const scale = rts.active ? (rts.paused ? 0 : 0.3) : 1;
+  const scale = rts.active ? (rts.paused ? 0 : 0.2) : 1;
   const dt = realDt * scale;
 
   const shakeBefore = fx.shake;
@@ -270,7 +475,10 @@ function frame() {
   else if (fieldActive) {
     if (input.hit('KeyZ')) support.callAirstrike(player.aimPoint.clone());
     if (input.hit('KeyX')) support.callGunship(player.pos.clone());
+    if (input.hit('KeyT')) support.callSupply(player.aimPoint.clone());
   }
+  updatePouches(dt);
+  battle.settlement?.update(now / 1000);
   support.update(dt, camera.position);
   fx.update(dt);
   // Rumble on nearby explosions (shake jumps when one goes off)
@@ -279,6 +487,10 @@ function frame() {
 
   // Tell the simulation where we are and who we shot
   send({ t: 'player', p: player.simState() });
+  if (player.hammerHits.length) {
+    send({ t: 'damage', hits: player.hammerHits, source: 'hammer' });
+    player.hammerHits = [];
+  }
   if (player.swordHits.length) {
     send({ t: 'damage', hits: player.swordHits, source: 'sword' });
     player.swordHits = [];
@@ -315,6 +527,8 @@ function frame() {
       player, support, supplies: state.supplies, rtsActive: rts.active, rts, counts: counts(),
     });
     hud.updateObjectives(state.obj, heroes);
+    hud.updatePlayerState(player, battle.loot, padActive);
+    if (battle.campaign) hud.updateTimeline(battle.instBase + battle.instGain);
     audio.setIntensity(Math.min(1, (state.stats ? (state.stats.kills[0] + state.stats.kills[1]) : 0) / 300));
   }
   camera.getWorldDirection(camDir);
@@ -326,4 +540,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Expose for debugging in the console
-window.__game = { state, player, army, rts, support, send, castle, input };
+window.__game = { state, player, army, rts, support, send, castle, input, battle };

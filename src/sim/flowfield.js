@@ -47,6 +47,15 @@ export class NavGrid {
     return this.blocked[this.cellIndex(x, z)] !== 0;
   }
 
+  // Place an arbitrary destructible structure (e.g. the Temporal Beacon, type 6)
+  setCell(x, z, type, hp) {
+    const c = this.cellIndex(x, z);
+    this.blocked[c] = type;
+    this.fortHp[c] = hp;
+    this.invalidate();
+    return c;
+  }
+
   setFort(x, z, hp) {
     const c = this.cellIndex(x, z);
     if (this.blocked[c] === 1) return false;
@@ -59,7 +68,7 @@ export class NavGrid {
   // Is this cell a destructible structure (palisade, castle wall or gate)?
   destructible(c) {
     const b = this.blocked[c];
-    return b === 2 || b === 3 || b === 4;
+    return b === 2 || b === 3 || b === 4 || b === 6;
   }
 
   clearCell(c) {

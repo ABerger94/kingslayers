@@ -8,7 +8,8 @@ import {
   TEAM_REBEL, TEAM_CROWN,
   ST_IDLE, ST_MOVE, ST_FIGHT, ST_SHOOT, ST_ROUT, ST_DEAD,
   SNAP_STRIDE, ARROW_STRIDE, MAX_ARROWS,
-  ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT,
+  ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT, ORDER_CHARGE, ORDER_FOLLOW,
+  FLAG_GARRISON, FLAG_OFFICER, FLAG_AGENT, CELL_BEACON,
   HALF_WORLD, PALISADE_COST_PER_M, NAV_CELL, NAV_DIM,
 } from '../shared/constants.js';
 import { heightAt, inPeaField } from '../shared/terrain.js';
@@ -51,6 +52,13 @@ export class Regiment {
     this.moving = false;
     this.garrison = false; // stands on the castle walls
     this.inCastle = false; // stationed in the castle courtyard
+    this.formation = 'line'; // line | wedge | shieldwall
+    this.vet = 0; // veterancy level of the player's squads (0-3)
+    this.lieutenant = null; // named lieutenant leading this regiment
+    this.squadId = null; // the player's persistent squad this regiment represents
+    this.handgun = false; // crude gunpowder weapons (Timeline Instability)
+    this.agent = false; // the Usurper's rival time-travellers
+    this.officer = -1; // unit index of the regiment's officer
   }
 }
 
@@ -77,6 +85,12 @@ export class Sim {
     this.assault = false; // rebels have broken the field army and are storming the castle
     this.castleOpen = false; // a wall or the gate has been destroyed
     this.objectives = { field: 1, gate: 1, open: false, assault: false };
+    this.mission = null; // { name, check(sim) -> null | { outcome, text } }
+    this.fear = 1; // "Fear of the Thunder-Stick": how much gunfire terrifies; fades over a campaign
+    this.instability = 0; // Timeline Instability 0-100 (set per battle)
+    this.officers = {}; // unit -> { name, rank, value }
+    this.stormT = 25; // time until the next time-storm strike
+    this.beacon = -1; // nav cell of the Temporal Beacon (settlement defense)
     this.gateCells = castleCells().filter((c) => c.type === CELL_GATE).map((c) => c.c);
     this.gateMaxHp = this.gateCells.length * GATE_HP;
   }
@@ -93,6 +107,8 @@ export class Sim {
     this.type = U(); this.team = U(); this.state = U(); this.alive = U(); this.fled = U();
     this.reg = I(); this.target = I();
     this.elev = F(); this.garrison = U(); this.gcell = I(); this.flung = U();
+    this.officer = U(); this.wounded = U(); this.agent = U(); this.agentCd = F();
+    this.arrowKind = new Uint8Array(MAX_ARROWS); // 0 arrow, 1 handgonne ball
     this.grid = new SpatialGrid(capacity, 4);
     this.arrows = new Float32Array(MAX_ARROWS * ARROW_STRIDE);
     this.arrowTeam = new Uint8Array(MAX_ARROWS);
@@ -120,6 +136,8 @@ export class Sim {
     this.type[i] = type; this.team[i] = reg.team; this.state[i] = ST_IDLE;
     this.alive[i] = 1; this.fled[i] = 0;
     this.elev[i] = 0; this.garrison[i] = 0; this.gcell[i] = -1; this.flung[i] = 0;
+    this.officer[i] = 0; this.wounded[i] = 0; this.agent[i] = 0; this.agentCd[i] = 1 + this.rng() * 2;
+    if (reg.vet) this.morale[i] += 0.08 * reg.vet;
     this.reg[i] = reg.id; this.target[i] = -1;
     this.thinkT[i] = this.rng() * 0.5;
     this.anim[i] = this.rng() * 10;
@@ -170,14 +188,38 @@ export class Sim {
     return reg;
   }
 
+  // Give a regiment a named officer: tougher, and when he falls the men around him waver.
+  // Officers who fall to anything but an explosion are only wounded and can be captured.
+  assignOfficer(reg, name, rank = 'Captain', value = 60) {
+    const i = reg.members.find((m) => this.type[m] !== HERO);
+    if (i === undefined) return -1;
+    this.officer[i] = 1;
+    this.hp[i] = this.maxHp[i] = this.maxHp[i] * 1.6;
+    this.morale[i] = 2;
+    this.officers[i] = { name, rank, value, reg: reg.id };
+    reg.officer = i;
+    return i;
+  }
+
+  capture(i) {
+    if (!this.wounded[i] || this.fled[i]) return false;
+    this.wounded[i] = 0;
+    this.fled[i] = 1; // taken off the field
+    const o = this.officers[i] || { name: 'An officer', rank: 'Captain', value: 50 };
+    this.events.push({ t: 'captured', i, name: o.name, rank: o.rank, value: o.value, hero: this.type[i] === HERO });
+    return true;
+  }
+
   // ---------------------------------------------------------------- formations
   formationCols(reg, count) {
-    const ratio = reg.type === ARCHER ? 5 : reg.type === CAVALRY ? 3 : 2.5;
+    let ratio = reg.type === ARCHER ? 5 : reg.type === CAVALRY ? 3 : 2.5;
+    if (reg.formation === 'shieldwall') ratio = 1.4;
     return Math.max(3, Math.round(Math.sqrt(count * ratio)));
   }
 
   spacing(reg) {
-    return reg.type === CAVALRY ? 3.0 : reg.type === ARCHER ? 2.0 : 1.5;
+    const s = reg.type === CAVALRY ? 3.0 : reg.type === ARCHER ? 2.0 : 1.5;
+    return reg.formation === 'shieldwall' ? s * 0.75 : s;
   }
 
   computeSlots(reg) {
@@ -195,10 +237,18 @@ export class Sim {
         this.slotZ[i] = reg.anchorZ - fz * sp * 1.5;
         continue;
       }
-      const row = (k / cols) | 0, col = k % cols;
-      const inRow = Math.min(cols, count - row * cols);
-      const lat = (col - (inRow - 1) / 2) * sp;
-      const back = row * sp;
+      let lat, back;
+      if (reg.formation === 'wedge') {
+        // point of the wedge at the front: row r holds 2r+1 men
+        const row = Math.floor(Math.sqrt(k)), j = k - row * row;
+        lat = (j - row) * sp;
+        back = row * sp * 0.9;
+      } else {
+        const row = (k / cols) | 0, col = k % cols;
+        const inRow = Math.min(cols, count - row * cols);
+        lat = (col - (inRow - 1) / 2) * sp;
+        back = row * sp;
+      }
       this.slotX[i] = reg.anchorX + rx * lat - fx * back;
       this.slotZ[i] = reg.anchorZ + rz * lat - fz * back;
       k++;
@@ -212,6 +262,13 @@ export class Sim {
     reg.order = { type: order.type, x: order.x ?? reg.anchorX, z: order.z ?? reg.anchorZ, facing: order.facing ?? null, target: order.target ?? -1 };
     reg.lastOrderTime = this.time;
     if (order.type === ORDER_HOLD) { reg.order.x = reg.cx || reg.anchorX; reg.order.z = reg.cz || reg.anchorZ; }
+    if (order.type === ORDER_CHARGE) for (const i of reg.members) if (this.alive[i]) this.morale[i] = Math.min(1.3, this.morale[i] + 0.12);
+    if (order.formation) reg.formation = order.formation;
+  }
+
+  setFormation(regId, formation) {
+    const reg = this.regiments[regId];
+    if (reg && !reg.garrison) reg.formation = formation;
   }
 
   setAuto(regId, auto) {
@@ -249,7 +306,8 @@ export class Sim {
   damageUnit(i, dmg, source = 'gun') {
     if (!this.alive[i]) return;
     this.hp[i] -= dmg;
-    if (source === 'sword') {
+    if (source === 'sword' || source === 'hammer') {
+      const hammer = source === 'hammer';
       if (this.hp[i] <= 0) {
         this.kill(i, 'sword');
         // A champion cutting men down in front of them steels the rebels' nerve
@@ -258,14 +316,15 @@ export class Sim {
       }
       // Knock back and stagger
       const dx = this.x[i] - this.player.x, dz = this.z[i] - this.player.z, d = Math.hypot(dx, dz) + 0.01;
-      const push = this.type[i] === CAVALRY ? 2 : this.type[i] === HERO ? 1.5 : 6;
+      // the sledgehammer staggers even armoured knights (doc 4.1)
+      const push = hammer ? 9 : this.type[i] === CAVALRY ? 2 : this.type[i] === HERO ? 1.5 : 6;
       this.vx[i] += dx / d * push; this.vz[i] += dz / d * push;
-      this.cooldown[i] = Math.max(this.cooldown[i], 0.9);
+      this.cooldown[i] = Math.max(this.cooldown[i], hammer ? 2.2 : 0.9);
       this.morale[i] -= 0.04;
       return;
     }
     if (this.hp[i] <= 0) this.kill(i, 'player');
-    else if (source === 'gun') this.shockArea(this.x[i], this.z[i], 6, 0.03, this.team[i]);
+    else if (source === 'gun') this.shockArea(this.x[i], this.z[i], 6, 0.03 * this.fear, this.team[i]);
   }
 
   inspire(x, z, r, amount) {
@@ -284,8 +343,8 @@ export class Sim {
       if (d > R) return false;
       // Terror: medieval soldiers have never seen anything like it
       const t = 1 - d / R;
-      this.morale[j] -= 0.55 * t;
-      if (this.team[j] === TEAM_CROWN) this.loyalty[j] -= 0.18 * t;
+      this.morale[j] -= 0.55 * t * (0.4 + 0.6 * this.fear);
+      if (this.team[j] === TEAM_CROWN) this.loyalty[j] -= 0.18 * t * this.fear;
       if (d < r) {
         const k = 1 - (d / r) * 0.6;
         this.hp[j] -= dmg * k * (1 - STATS[this.type[j]].armor * 0.3);
@@ -360,13 +419,32 @@ export class Sim {
     this.state[i] = ST_DEAD;
     this.hp[i] = 0;
     const team = this.team[i];
+    // Officers (and capturable commanders) are wounded rather than killed, unless blown apart
+    if (this.officers[i] && cause !== 'explosion') {
+      this.wounded[i] = 1;
+      const o = this.officers[i];
+      this.events.push({ t: 'officerDown', i, name: o.name, rank: o.rank, x: this.x[i], z: this.z[i], team });
+      this.officerShock(i);
+    } else if (this.officers[i]) this.officerShock(i);
     this.stats.kills[1 - team]++;
+    if (this.stormBlast) cause = 'storm';
     const byPlayer = cause === 'player' || cause === 'explosion' || cause === 'sword';
     if (byPlayer) this.stats.playerKills++;
-    if (cause === 'explosion') { this.flung[i] = 1; this.flying.push([i, FLING_TIME]); }
+    if (cause === 'explosion' || cause === 'storm') { this.flung[i] = 1; this.flying.push([i, FLING_TIME]); }
     this.shockArea(this.x[i], this.z[i], 7, byPlayer && cause !== 'sword' ? 0.06 : 0.025, team);
     this.events.push({ t: 'death', i, x: this.x[i], z: this.z[i], cause });
-    if (this.type[i] === HERO) this.onHeroDeath(i);
+    if (this.type[i] === HERO && !this.agent[i]) this.onHeroDeath(i);
+    if (this.agent[i]) this.events.push({ t: 'agentDown', x: this.x[i], z: this.z[i] });
+  }
+
+  // A fallen officer: his regiment and nearby formations may break
+  officerShock(i) {
+    const team = this.team[i], reg = this.reg[i];
+    this.grid.query(this.x[i], this.z[i], 35, (j) => {
+      if (!this.alive[j] || this.team[j] !== team) return false;
+      this.morale[j] -= this.reg[j] === reg ? 0.4 : 0.15;
+      return false;
+    });
   }
 
   onHeroDeath(i) {
@@ -395,6 +473,8 @@ export class Sim {
     for (let i = 0; i < this.n; i++) if (this.alive[i]) this.integrate(i, dt);
     this.updateFlying(dt);
     this.updateArrows(dt);
+    this.updateStorms(dt);
+    if (this.mission && this.mission.update) this.mission.update(this, dt);
     this.supplies = Math.min(600, this.supplies + dt * 2.5);
     this.checkOutcome();
   }
@@ -450,7 +530,15 @@ export class Sim {
     // Move the anchor
     const o = reg.order;
     let tx = o.x, tz = o.z;
-    if (o.type === ORDER_ATTACK) {
+    if (o.type === ORDER_FOLLOW) {
+      // Stay a few metres from the operative; close right in if he's down (to drag him out)
+      const px = this.player.x, pz = this.player.z;
+      const d = Math.hypot(reg.anchorX - px, reg.anchorZ - pz) || 1;
+      const keep = this.player.alive ? 7 : 0;
+      tx = px + (reg.anchorX - px) / d * keep; tz = pz + (reg.anchorZ - pz) / d * keep;
+      if (d < keep + 3 && this.player.alive) { tx = reg.anchorX; tz = reg.anchorZ; }
+    }
+    if ((o.type === ORDER_ATTACK || o.type === ORDER_CHARGE) && o.target >= 0) {
       const tr = this.regiments[o.target];
       if (!tr || tr.alive - tr.routing <= 0) {
         o.type = ORDER_HOLD; o.x = reg.cx; o.z = reg.cz;
@@ -476,7 +564,9 @@ export class Sim {
       if (ex * ex + ez * ez < 36) near++;
     }
     const cohesion = near / nm;
-    const baseSpeed = STATS[reg.type].speed * (o.type === ORDER_RETREAT ? 1.15 : 0.92);
+    let baseSpeed = STATS[reg.type].speed * (o.type === ORDER_RETREAT ? 1.15 : 0.92);
+    if (o.type === ORDER_CHARGE || (o.type === ORDER_FOLLOW && dist > 15)) baseSpeed = STATS[reg.type].run * 0.85;
+    if (reg.formation === 'shieldwall') baseSpeed *= 0.65;
     reg.moving = false;
     if (dist > 1.5 && o.type !== ORDER_HOLD) {
       let speed = baseSpeed * Math.min(1, Math.max(0.1, (cohesion - 0.35) * 2));
@@ -510,6 +600,8 @@ export class Sim {
       case ORDER_HOLD: return type === CAVALRY ? 14 : 10;
       case ORDER_ATTACK: return type === CAVALRY ? 45 : 32;
       case ORDER_ATTACK_MOVE: return type === CAVALRY ? 40 : 26;
+      case ORDER_CHARGE: return type === CAVALRY ? 50 : 38;
+      case ORDER_FOLLOW: return 14;
     }
     return 10;
   }
@@ -556,6 +648,7 @@ export class Sim {
     }
 
     if (this.garrison[i]) { this.garrisonBehaviour(i, reg, dt); return; }
+    if (this.agent[i]) { this.agentBehaviour(i, dt); return; }
     if (this.state[i] === ST_ROUT) {
       this.routBehaviour(i, dt, doThink);
       return;
@@ -656,6 +749,41 @@ export class Sim {
     if (fighting) { this.vx[i] *= 0.6; this.vz[i] *= 0.6; }
   }
 
+  // The Usurper's agents: rival time-travellers with rifles who hunt the operative
+  agentBehaviour(i, dt) {
+    const st = STATS[HERO];
+    const p = this.player;
+    let tx, tz, targetUnit = -1;
+    if (p.alive) { tx = p.x; tz = p.z; }
+    else {
+      targetUnit = this.findEnemy(i, 80);
+      if (targetUnit < 0) { this.vx[i] *= 0.8; this.vz[i] *= 0.8; this.state[i] = ST_IDLE; return; }
+      tx = this.x[targetUnit]; tz = this.z[targetUnit];
+    }
+    const dx = tx - this.x[i], dz = tz - this.z[i], d = Math.hypot(dx, dz) + 1e-6;
+    this.heading[i] = Math.atan2(dx, dz);
+    // keep at rifle range and strafe
+    const want = 30;
+    let mx = 0, mz = 0;
+    if (d > want + 8) { mx = dx / d; mz = dz / d; } else if (d < want - 10) { mx = -dx / d; mz = -dz / d; }
+    const side = (i % 2 ? 1 : -1) * 0.6;
+    mx += -dz / d * side; mz += dx / d * side;
+    const ml = Math.hypot(mx, mz) || 1;
+    this.vx[i] += (mx / ml * st.run - this.vx[i]) * Math.min(1, dt * 4);
+    this.vz[i] += (mz / ml * st.run - this.vz[i]) * Math.min(1, dt * 4);
+    this.state[i] = ST_SHOOT;
+    this.agentCd[i] -= dt;
+    if (this.agentCd[i] <= 0 && d < 140 && this.nav.clearLine(this.x[i], this.z[i], tx, tz)) {
+      this.agentCd[i] = 0.9 + this.rng() * 0.6;
+      const hit = this.rng() < Math.max(0.08, 0.4 - d / 200);
+      this.events.push({ t: 'agentShot', x: this.x[i], z: this.z[i], tx, tz, hit });
+      if (hit) {
+        if (targetUnit >= 0) { this.hp[targetUnit] -= 70; if (this.hp[targetUnit] <= 0) this.kill(targetUnit, 'melee'); }
+        else this.events.push({ t: 'hitPlayer', dmg: 10, kind: 'bullet', x: this.x[i], z: this.z[i] });
+      }
+    }
+  }
+
   garrisonBehaviour(i, reg, dt) {
     this.vx[i] = 0; this.vz[i] = 0;
     if (this.morale[i] < 0.5) this.morale[i] = 0.5; // safe behind the battlements
@@ -682,6 +810,21 @@ export class Sim {
     }
   }
 
+  // Timeline Instability above 80%: time storms lash the battlefield near the operative
+  updateStorms(dt) {
+    if (this.instability < 80 || this.outcome) return;
+    this.stormT -= dt;
+    if (this.stormT > 0) return;
+    this.stormT = 14 + this.rng() * 20 - (this.instability - 80) * 0.3;
+    const a = this.rng() * Math.PI * 2, r = 20 + this.rng() * 110;
+    const x = Math.max(-HALF_WORLD + 10, Math.min(HALF_WORLD - 10, this.player.x + Math.cos(a) * r));
+    const z = Math.max(-HALF_WORLD + 10, Math.min(HALF_WORLD - 10, this.player.z + Math.sin(a) * r));
+    this.events.push({ t: 'storm', x, z });
+    this.stormBlast = true;
+    this.explode(x, z, 5, 140, 0);
+    this.stormBlast = false;
+  }
+
   updateMorale(i, reg, dt) {
     const team = this.team[i];
     let allies = 0, enemies = 0;
@@ -700,12 +843,20 @@ export class Sim {
       const dx = this.x[h] - this.x[i], dz = this.z[h] - this.z[i];
       if (dx * dx + dz * dz < 40 * 40) { dm += 0.07; break; }
     }
+    if (team === TEAM_REBEL) {
+      // A named lieutenant steadies his regiment; so does the operative fighting alongside
+      if (reg && reg.lieutenant) dm += 0.03;
+      if (this.player.alive) {
+        const dx = this.player.x - this.x[i], dz = this.player.z - this.z[i];
+        if (dx * dx + dz * dz < 25 * 25) dm += 0.04;
+      }
+    }
     // Heavy regimental losses sap the will to fight
     if (reg && reg.initial > 0) dm -= 0.05 * Math.max(0, 1 - reg.alive / reg.initial - 0.3);
     // Get within a few metres of the time traveller and his thunder-sticks...
     if (team === TEAM_CROWN && this.player.alive) {
       const dx = this.player.x - this.x[i], dz = this.player.z - this.z[i];
-      if (dx * dx + dz * dz < 15 * 15) dm -= 0.03;
+      if (dx * dx + dz * dz < 15 * 15) dm -= 0.03 * this.fear;
     }
     const cap = STATS[this.type[i]].morale * 1.1;
     this.morale[i] = Math.max(-0.2, Math.min(cap, this.morale[i] + dm * dt));
@@ -784,6 +935,14 @@ export class Sim {
     }
     const tt = this.type[tgt];
     if (this.type[i] === SPEAR && (tt === CAVALRY)) dmg *= st.antiCav;
+    // Rock-paper-scissors: swordsmen beat spearmen, cavalry beat archers
+    if (this.type[i] === SWORD && tt === SPEAR) dmg *= 1.5;
+    if (this.type[i] === CAVALRY && tt === ARCHER) dmg *= 1.5;
+    const ra = this.regiments[this.reg[i]], rt = this.regiments[this.reg[tgt]];
+    if (ra.formation === 'wedge') dmg *= 1.2;
+    if (rt.formation === 'shieldwall') dmg *= 0.75;
+    if (ra.vet) dmg *= 1 + 0.1 * ra.vet;
+    if (this.agent[tgt]) dmg *= 0.5;
     if (this.type[i] === CAVALRY) {
       const sp = Math.hypot(this.vx[i], this.vz[i]);
       if (sp > 5.5) dmg *= st.charge;
@@ -816,13 +975,16 @@ export class Sim {
     if (tgt !== PLAYER) { tx = this.x[tgt]; tz = this.z[tgt]; }
     const sx = this.x[i], sz = this.z[i];
     let d = Math.hypot(tx - sx, tz - sz);
-    const T = d / ARROW_SPEED_H;
+    const gun = this.regiments[this.reg[i]].handgun;
+    const speedH = gun ? 120 : ARROW_SPEED_H;
+    const T = d / speedH;
     if (tgt !== PLAYER) { tx += this.vx[tgt] * T; tz += this.vz[tgt] * T; }
     // Inaccuracy grows with range
-    const spread = 0.8 + d * 0.035;
+    const spread = gun ? 0.6 + d * 0.025 : 0.8 + d * 0.035;
     tx += this.rng.gauss() * spread; tz += this.rng.gauss() * spread;
     d = Math.hypot(tx - sx, tz - sz);
-    const t = Math.max(0.3, d / ARROW_SPEED_H);
+    const t = Math.max(0.12, d / speedH);
+    if (gun && this.rng() < 0.35) this.events.push({ t: 'gunsmoke', x: sx, z: sz });
     const sy = heightAt(sx, sz) + 1.6 + this.elev[i];
     const ty = heightAt(tx, tz) + 1.2 + (tgt >= 0 ? this.elev[tgt] : 0);
     const k = this.arrowCount++ * ARROW_STRIDE;
@@ -832,6 +994,7 @@ export class Sim {
     a[k + 4] = (ty - sy) / t + 0.5 * GRAVITY * t;
     a[k + 5] = (tz - sz) / t;
     this.arrowTeam[this.arrowCount - 1] = this.team[i];
+    this.arrowKind[this.arrowCount - 1] = gun ? 1 : 0;
     this.arrowLife[this.arrowCount - 1] = 0;
   }
 
@@ -849,6 +1012,7 @@ export class Sim {
       for (let q = 0; q < ARROW_STRIDE; q++) a[k + q] = a[l + q];
       this.arrowTeam[n] = this.arrowTeam[last];
       this.arrowLife[n] = this.arrowLife[last];
+      this.arrowKind[n] = this.arrowKind[last];
     }
   }
 
@@ -865,12 +1029,18 @@ export class Sim {
       a[k] += a[k + 3] * dt; a[k + 1] += a[k + 4] * dt; a[k + 2] += a[k + 5] * dt;
       const x = a[k], y = a[k + 1], z = a[k + 2];
       const team = this.arrowTeam[n];
-      // Player hit test (anywhere along the flight while low)
+      const ball = this.arrowKind[n] === 1;
+      // Player hit test along this tick's flight segment
       if (team === TEAM_CROWN && this.player.alive && !this.player.vehicle) {
-        const dx = x - this.player.x, dz = z - this.player.z;
-        const gy = heightAt(this.player.x, this.player.z);
-        if (dx * dx + dz * dz < 0.7 && y > gy && y < gy + 2) {
-          this.events.push({ t: 'hitPlayer', dmg: 9, kind: 'arrow', x: x - a[k + 3], z: z - a[k + 5] });
+        const px = this.player.x, pz = this.player.z;
+        const sx = x - a[k + 3] * dt, sz = z - a[k + 5] * dt;
+        const ex = x - sx, ez = z - sz, el = ex * ex + ez * ez || 1;
+        const u = Math.max(0, Math.min(1, ((px - sx) * ex + (pz - sz) * ez) / el));
+        const cx = sx + ex * u - px, cz = sz + ez * u - pz;
+        const gy = heightAt(px, pz);
+        const cy = y - a[k + 4] * dt * (1 - u);
+        if (cx * cx + cz * cz < 0.6 && cy > gy && cy < gy + 2.1) {
+          this.events.push({ t: 'hitPlayer', dmg: ball ? 18 : 9, kind: ball ? 'bullet' : 'arrow', x: x - a[k + 3], z: z - a[k + 5] });
           this.removeArrow(n); n--; continue;
         }
       }
@@ -890,13 +1060,15 @@ export class Sim {
           if (!this.alive[j] || this.team[j] === team) return false;
           const base = gy + this.elev[j];
           if (y < base || y > base + 1.9) return false;
-          const r = STATS[this.type[j]].radius + 0.15;
+          const r = STATS[this.type[j]].radius + (ball ? 0.6 : 0.15);
           const dx = this.x[j] - x, dz = this.z[j] - z;
           if (dx * dx + dz * dz < r * r) { hit = j; return true; }
           return false;
         });
         if (hit >= 0) {
-          const dmg = STATS[ARCHER].arrowDmg * this.rng.range(0.6, 1.3) * (1 - STATS[this.type[hit]].armor * 0.8);
+          let dmg = STATS[ARCHER].arrowDmg * this.rng.range(0.6, 1.3) * (1 - STATS[this.type[hit]].armor * (ball ? 0.3 : 0.8));
+          if (ball) dmg *= 1.5;
+          if (this.regiments[this.reg[hit]].formation === 'shieldwall') dmg *= 0.4; // shields up
           this.hp[hit] -= dmg;
           this.morale[hit] -= 0.02;
           if (this.hp[hit] <= 0) this.kill(hit, 'arrow');
@@ -946,6 +1118,7 @@ export class Sim {
         let rate = 0;
         if (b === 2 && this.team[i] === TEAM_CROWN) rate = 0.6;
         else if (b === CELL_GATE && this.team[i] === TEAM_REBEL) rate = GATE_HACK;
+        else if (b === CELL_BEACON && this.team[i] === TEAM_CROWN) rate = 0.35;
         if (rate) {
           nav.fortHp[c] -= STATS[this.type[i]].dmg * dt * rate;
           if (nav.fortHp[c] <= 0) this.destroyCell(c);
@@ -989,6 +1162,12 @@ export class Sim {
       this.events.push({ t: 'phase', phase: 'assault' });
     }
 
+    // Missions other than Shrewsbury bring their own win/lose rules
+    if (this.mission && this.mission.check) {
+      const r = this.mission.check(this);
+      if (r) this.finish(r.outcome, r.text);
+      return;
+    }
     const hot = this.heroes['Harry Hotspur'];
     const king = this.heroes['King Henry IV'];
     if (hot !== undefined && !this.alive[hot]) this.finish('defeat', 'Hotspur has fallen. History repeats itself.');
@@ -1008,9 +1187,10 @@ export class Sim {
     for (let i = 0; i < n; i++) {
       const k = i * SNAP_STRIDE;
       s[k] = this.x[i]; s[k + 1] = this.z[i]; s[k + 2] = this.heading[i];
-      s[k + 3] = this.type[i] | (this.team[i] << 3) | (this.state[i] << 4) | (this.garrison[i] << 7);
-      // hp fraction; -1 = fled the field, -2 = killed by an explosion (body thrown)
-      s[k + 4] = this.fled[i] ? -1 : this.flung[i] ? -2 : this.hp[i] / this.maxHp[i];
+      s[k + 3] = this.type[i] | (this.team[i] << 3) | (this.state[i] << 4) |
+        (this.garrison[i] ? FLAG_GARRISON : 0) | (this.officer[i] ? FLAG_OFFICER : 0) | (this.agent[i] ? FLAG_AGENT : 0);
+      // hp fraction; -1 = fled/captured, -2 = killed by an explosion (body thrown), -3 = wounded officer (capturable)
+      s[k + 4] = this.fled[i] ? -1 : this.flung[i] ? -2 : this.wounded[i] ? -3 : this.hp[i] / this.maxHp[i];
       s[k + 5] = Math.hypot(this.vx[i], this.vz[i]);
     }
     return s;
@@ -1029,6 +1209,8 @@ export class Sim {
       morale: r.morale, x: r.anchorX, z: r.anchorZ, cx: r.cx, cz: r.cz, facing: r.facing,
       order: r.order.type, ox: r.order.x, oz: r.order.z, target: r.order.target, auto: r.auto,
       hero: r.heroIdx, garrison: r.garrison, inCastle: r.inCastle,
+      formation: r.formation, vet: r.vet, squadId: r.squadId, lieutenant: r.lieutenant, agent: r.agent, handgun: r.handgun,
+      officer: r.officer, officerName: r.officer >= 0 && this.officers[r.officer] ? this.officers[r.officer].name : null,
     }));
   }
 
