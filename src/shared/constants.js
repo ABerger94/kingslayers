@@ -54,8 +54,23 @@ export const ORDER_MOVE = 1; // move, only fight if attacked
 export const ORDER_ATTACK_MOVE = 2; // move, engaging anything on the way
 export const ORDER_ATTACK = 3; // attack a specific regiment
 export const ORDER_RETREAT = 4;
+export const ORDER_CHARGE = 5; // attack at a run, with a morale boost
+export const ORDER_FOLLOW = 6; // stay close to the operative
 
-export const ORDER_NAMES = ['Hold', 'Move', 'Advance', 'Attack', 'Retreat'];
+export const ORDER_NAMES = ['Hold', 'Move', 'Advance', 'Attack', 'Retreat', 'Charge', 'Follow'];
+
+// Regiment formations
+export const FORMATIONS = ['line', 'wedge', 'shieldwall'];
+export const FORMATION_NAMES = { line: 'Line', wedge: 'Wedge', shieldwall: 'Shield wall' };
+
+// Extra snapshot flag bits (packed into field 3 above the state bits)
+export const FLAG_GARRISON = 1 << 7;
+export const FLAG_OFFICER = 1 << 8;
+export const FLAG_AGENT = 1 << 9; // the Usurper's rival time-travellers
+
+// Navigation cell types
+export const CELL_PALISADE = 2;
+export const CELL_BEACON = 6; // the Temporal Beacon at the player's settlement
 
 // Pathfinding grid
 export const NAV_CELL = 4;

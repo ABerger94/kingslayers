@@ -2,7 +2,7 @@
 // which only renders, runs the player's weapons, and forwards commands. Keeping the AI off the main
 // thread means thousands of soldiers never cost the renderer a frame.
 import { Sim } from './sim.js';
-import { buildShrewsbury } from './scenario.js';
+import { buildMission } from './scenario.js';
 import { SIM_DT } from '../shared/constants.js';
 
 let sim = null;
@@ -13,8 +13,8 @@ let last = 0;
 let tickCount = 0;
 let simMs = 0;
 
-function start(seed, difficulty) {
-  sim = buildShrewsbury(new Sim(seed), difficulty);
+function start(seed, config) {
+  sim = buildMission(new Sim(seed), config);
   last = performance.now();
   postMessage({ t: 'ready', n: sim.n, regiments: sim.regimentSummary() });
   setInterval(loop, 1000 / 60);
@@ -57,7 +57,9 @@ function loop() {
 onmessage = (e) => {
   const m = e.data;
   switch (m.t) {
-    case 'start': start(m.seed ?? 1403, m.difficulty); break;
+    case 'start': start(m.seed ?? 1403, m.config || { mission: 'classic', difficulty: m.difficulty }); break;
+    case 'capture': sim.capture(m.i); break;
+    case 'formation': for (const id of m.regs) sim.setFormation(id, m.formation); break;
     case 'player': if (sim) Object.assign(sim.player, m.p); break;
     case 'damage':
       for (let k = 0; k < m.hits.length; k += 2) sim.damageUnit(m.hits[k], m.hits[k + 1], m.source || 'gun');
