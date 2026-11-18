@@ -54,6 +54,13 @@ export function buildShrewsbury(sim, difficulty = 'knight', scale = 'epic') {
   return buildMission(sim, { mission: 'classic', difficulty, scale });
 }
 
+// Veteran regiments: +10% damage and steadier morale per level
+function elite(sim, reg, vet) {
+  reg.vet = vet;
+  for (const i of reg.members) sim.morale[i] += 0.08 * vet;
+  return reg;
+}
+
 // ---------------------------------------------------------------- the player's own army
 function spawnPlayerArmy(sim, cfg, x, z, facing, opts = {}) {
   const regs = [];
@@ -119,17 +126,20 @@ function shrewsbury(sim, cfg, mission) {
   // Standard size (the design target of ~1,500 soldiers) or the original epic ~3,300
   const size = cfg.scale === 'epic' || (mission === 'classic' && cfg.scale !== 'standard') ? 1 : 0.45;
   const n = (count) => Math.max(8, Math.round(count * k * size));
-  const r = (count) => Math.max(8, Math.round(count * size));
+  // Historically Hotspur was outnumbered; here the rebel host is only slightly smaller than the King's
+  const r = (count) => Math.max(8, Math.round(count * size * 1.2));
 
   // ---- Rebel alliance (north, the player's side)
-  ['I', 'II', 'III', 'IV', 'V'].forEach((name, i) => sim.spawnRegiment(R, ARCHER, `Cheshire Bowmen ${name}`, r(110), -200 + i * 100, -70, SOUTH));
-  sim.spawnRegiment(R, SWORD, 'Percy Men-at-Arms I', r(130), -60, -100, SOUTH);
-  sim.spawnRegiment(R, SWORD, 'Percy Men-at-Arms II', r(130), 60, -100, SOUTH);
+  // The Cheshire archers were the most feared bowmen in England, and Percy's household men were
+  // border veterans: both start as veterans
+  ['I', 'II', 'III', 'IV', 'V'].forEach((name, i) => elite(sim, sim.spawnRegiment(R, ARCHER, `Cheshire Bowmen ${name}`, r(110), -200 + i * 100, -70, SOUTH), 2));
+  elite(sim, sim.spawnRegiment(R, SWORD, 'Percy Men-at-Arms I', r(130), -60, -100, SOUTH), 1);
+  elite(sim, sim.spawnRegiment(R, SWORD, 'Percy Men-at-Arms II', r(130), 60, -100, SOUTH), 1);
   sim.spawnRegiment(R, SWORD, "Douglas's Scots", r(130), -170, -100, SOUTH);
   sim.spawnRegiment(R, SPEAR, 'Northumbrian Spears', r(120), 170, -100, SOUTH);
   sim.spawnRegiment(R, SPEAR, 'Worcester Spears', r(120), 0, -120, SOUTH);
   sim.spawnRegiment(R, CAVALRY, 'Percy Knights', r(70), -220, -125, SOUTH);
-  sim.spawnRegiment(R, HERO, "Hotspur's Household", r(40), 0, -150, SOUTH, { hero: 'Harry Hotspur', guardType: SWORD });
+  elite(sim, sim.spawnRegiment(R, HERO, "Hotspur's Household", r(40), 0, -150, SOUTH, { hero: 'Harry Hotspur', guardType: SWORD }), 2);
   if (mission !== 'classic' || (cfg.squads && cfg.squads.length)) spawnPlayerArmy(sim, cfg, 70, -140, SOUTH, { px: 24, pz: -158 });
 
   // ---- Royal army (south, on the rising ground)
@@ -180,7 +190,8 @@ function shrewsbury(sim, cfg, mission) {
 // ---------------------------------------------------------------- Raid (Act 1) and repeatable convoys
 function raid(sim, cfg, mission) {
   const k = (DIFFICULTY[cfg.difficulty] || DIFFICULTY.knight).crown * (1 - (cfg.sabotage || 0));
-  const lvl = mission === 'convoy' ? 0.85 + 0.15 * (cfg.convoyLevel || 0) : 0.72;
+  // Camp and convoy guards are second-line troops; convoys grow with each raid
+  const lvl = mission === 'convoy' ? 0.52 + 0.1 * (cfg.convoyLevel || 0) : 0.5;
   const n = (count) => Math.max(6, Math.round(count * k * lvl));
   const m = MISSIONS[mission];
   spawnPlayerArmy(sim, cfg, 0, -60, SOUTH, {
@@ -196,7 +207,7 @@ function raid(sim, cfg, mission) {
     sim.spawnRegiment(C, ARCHER, 'Camp Archers', n(40), -30, cz + 20, NORTH),
     sim.spawnRegiment(C, ARCHER, 'Camp Archers II', n(35), 40, cz + 22, NORTH),
     sim.spawnRegiment(C, SWORD, 'Camp Guard', n(40), -20, cz, NORTH),
-    sim.spawnRegiment(C, SWORD, 'Pay-chest Guard', n(35), 25, cz - 2, NORTH),
+    sim.spawnRegiment(C, SPEAR, 'Camp Levies', n(35), 25, cz - 2, NORTH),
     sim.spawnRegiment(C, SPEAR, 'Billmen', n(40), 75, cz + 5, NORTH),
     sim.spawnRegiment(C, CAVALRY, 'Mounted Escort', n(18), -80, cz + 35, NORTH),
   ];
@@ -235,13 +246,15 @@ function defense(sim, cfg, mission) {
     defaultSquads: [{ name: 'Welsh Levies', type: 'spear', men: 40 }, { name: 'Gwent Bowmen', type: 'archer', men: 30 }],
   });
   // The settlement's own militia always turns out
-  sim.spawnRegiment(R, SPEAR, 'Sycharth Militia', 35, -30, -165, SOUTH);
+  sim.spawnRegiment(R, SPEAR, 'Sycharth Militia', 40, -30, -165, SOUTH);
+  // Defending their own homes, the rebels stand firmer
+  for (const reg of sim.regiments) if (reg.team === R) for (const i of reg.members) sim.morale[i] += 0.2;
   sim.supplies = 420; // palisade timber laid in for the siege
   const endless = mission === 'endless';
   const waves = endless ? null : [
-    { at: 8, units: [[SWORD, 35, -40], [SWORD, 35, 40], [ARCHER, 30, 0]] },
-    { at: 80, units: [[SPEAR, 40, -60], [SWORD, 40, 0], [ARCHER, 30, 60], [CAVALRY, 15, -110]] },
-    { at: 150, units: [[SWORD, 50, -40], [SPEAR, 40, 40], [CAVALRY, 25, 110], [ARCHER, 40, 0], [HERO, 30, 0]] },
+    { at: 8, units: [[SWORD, 30, -40], [SPEAR, 30, 40], [ARCHER, 25, 0]] },
+    { at: 80, units: [[SPEAR, 35, -60], [SWORD, 30, 0], [ARCHER, 25, 60], [CAVALRY, 12, -110]] },
+    { at: 150, units: [[SWORD, 40, -40], [SPEAR, 35, 40], [CAVALRY, 18, 110], [ARCHER, 30, 0], [HERO, 25, 0]] },
   ];
   const state = { wave: 0, spawned: 0, regs: [], nextAt: 8, cleared: 0 };
   const spawnWave = (s, units, label) => {

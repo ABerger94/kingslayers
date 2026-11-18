@@ -46,9 +46,10 @@ export function newCampaign(difficulty = 'knight') {
     loadout: ['pistol', 'shotgun'],
     squads: [
       { id: 1, name: 'Welsh Levies', type: 'spear', men: 40, vet: 0, battles: 0 },
-      { id: 2, name: 'Gwent Bowmen', type: 'archer', men: 30, vet: 0, battles: 0 },
+      { id: 2, name: 'Gwent Bowmen', type: 'archer', men: 32, vet: 0, battles: 0 },
+      { id: 3, name: 'Teulu Blades', type: 'sword', men: 32, vet: 0, battles: 0 },
     ],
-    nextSquad: 3,
+    nextSquad: 4,
     prisoners: [],
     lieutenants: [],
     reputation: 0, loyalty: 70, executions: 0, executionBuff: 0,
@@ -71,13 +72,20 @@ export function clearCampaign() {
 
 // ---------------------------------------------------------------- economy helpers
 export const count = (c, type) => c.buildings.filter((b) => b.type === type).length;
-export const popCap = (c) => 60 + count(c, 'house') * 40;
+export const popCap = (c) => 100 + count(c, 'house') * 40;
 export const armySize = (c) => c.squads.reduce((a, s) => a + s.men, 0);
 export const canAfford = (c, cost) => Object.entries(cost).every(([k, v]) => (c.res[k] || 0) >= v);
 export function pay(c, cost) { for (const [k, v] of Object.entries(cost)) c.res[k] -= v; }
 export const costText = (cost) => Object.entries(cost).map(([k, v]) => `${v} ${k}`).join(', ');
 export function production(c) {
   return { food: 20 + count(c, 'farm') * 45, wood: 20 + count(c, 'mill') * 45 };
+}
+
+// Refill a squad back to full strength (keeps its name, veterancy and lieutenant)
+export function reinforceCost(s) {
+  const t = SQUAD_TYPES[s.type];
+  const missing = Math.max(0, t.men - s.men);
+  return { missing, cost: { food: Math.ceil(missing * t.food / t.men * 0.8), wood: Math.ceil(missing * t.wood / t.men * 0.5) } };
 }
 
 export function log(c, text) {
@@ -135,14 +143,20 @@ export function applyResults(c, r) {
   for (const p of r.prisoners) c.prisoners.push(p);
   if (r.prisoners.length) lines.push(`${r.prisoners.length} prisoner${r.prisoners.length > 1 ? 's' : ''} taken to the keep`);
   // the army: casualties and veterancy
+  let returned = 0;
   for (const s of c.squads) {
     if (r.squadsAlive[s.id] === undefined) continue;
     const before = s.men;
-    s.men = r.squadsAlive[s.id];
+    const alive = r.squadsAlive[s.id];
+    // Many of the fallen were only wounded: they recover and rejoin (more if you held the field)
+    const back = Math.round((before - alive) * (won ? 0.45 : 0.2));
+    s.men = Math.min(before, alive + back);
+    returned += back;
     s.battles = (s.battles || 0) + 1;
     if (won && s.men > 0 && s.vet < 3 && s.battles % 2 === 0) { s.vet++; lines.push(`${s.name} are now veterans (level ${s.vet})`); }
     if (before - s.men > 0) lines.push(`${s.name}: ${before - s.men} lost`);
   }
+  if (returned) lines.push(`${returned} wounded soldiers recovered and rejoined their squads`);
   const lost = c.squads.filter((s) => s.men <= 0);
   for (const s of lost) lines.push(`${s.name} were wiped out`);
   c.squads = c.squads.filter((s) => s.men > 0);

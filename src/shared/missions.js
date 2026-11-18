@@ -59,8 +59,8 @@ export const MISSIONS = {
 };
 
 export const SQUAD_TYPES = {
-  spear: { label: 'Spearmen', unit: 2, men: 30, food: 45, wood: 15, beats: 'cavalry' },
-  sword: { label: 'Swordsmen', unit: 1, men: 25, food: 60, wood: 30, beats: 'spearmen' },
-  archer: { label: 'Archers', unit: 0, men: 25, food: 45, wood: 35, beats: 'infantry at range' },
-  cavalry: { label: 'Cavalry', unit: 3, men: 12, food: 70, wood: 40, beats: 'archers', needsBarracks: 2 },
+  spear: { label: 'Spearmen', unit: 2, men: 40, food: 45, wood: 15, beats: 'cavalry' },
+  sword: { label: 'Swordsmen', unit: 1, men: 32, food: 60, wood: 30, beats: 'spearmen' },
+  archer: { label: 'Archers', unit: 0, men: 32, food: 45, wood: 35, beats: 'infantry at range' },
+  cavalry: { label: 'Cavalry', unit: 3, men: 16, food: 70, wood: 40, beats: 'archers', needsBarracks: 2 },
 };
