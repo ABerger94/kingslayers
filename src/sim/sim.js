@@ -306,7 +306,8 @@ export class Sim {
   damageUnit(i, dmg, source = 'gun') {
     if (!this.alive[i]) return;
     this.hp[i] -= dmg;
-    if (source === 'sword') {
+    if (source === 'sword' || source === 'hammer') {
+      const hammer = source === 'hammer';
       if (this.hp[i] <= 0) {
         this.kill(i, 'sword');
         // A champion cutting men down in front of them steels the rebels' nerve
@@ -315,9 +316,10 @@ export class Sim {
       }
       // Knock back and stagger
       const dx = this.x[i] - this.player.x, dz = this.z[i] - this.player.z, d = Math.hypot(dx, dz) + 0.01;
-      const push = this.type[i] === CAVALRY ? 2 : this.type[i] === HERO ? 1.5 : 6;
+      // the sledgehammer staggers even armoured knights (doc 4.1)
+      const push = hammer ? 9 : this.type[i] === CAVALRY ? 2 : this.type[i] === HERO ? 1.5 : 6;
       this.vx[i] += dx / d * push; this.vz[i] += dz / d * push;
-      this.cooldown[i] = Math.max(this.cooldown[i], 0.9);
+      this.cooldown[i] = Math.max(this.cooldown[i], hammer ? 2.2 : 0.9);
       this.morale[i] -= 0.04;
       return;
     }

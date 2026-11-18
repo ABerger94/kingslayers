@@ -11,6 +11,7 @@ import { WALL_H } from '../shared/castle.js';
 
 const SKIN = 0xd2a27c, STEEL = 0x9aa1a8, DARK = 0x3a3128, WOOD = 0x6d4c2c, LEATHER = 0x5a4026, HORSE = 0x6b4a33;
 export const TEAM_COLORS = [new THREE.Color(0xe0b341), new THREE.Color(0xc8323c)];
+const OFFICER_GOLD = new THREE.Color(0xf5d060);
 const TEAM_ALT = [new THREE.Color(0x3f6e3a), new THREE.Color(0x24407f)];
 
 function box(w, h, d, x, y, z, rx = 0) {
@@ -116,6 +117,9 @@ export class ArmyRenderer {
     this.teamOf = new Uint8Array(n);
     this.stateOf = new Uint8Array(n);
     this.onWallOf = new Uint8Array(n);
+    this.officerOf = new Uint8Array(n);
+    this.agentOf = new Uint8Array(n);
+    this.woundedOf = new Uint8Array(n);
     this.instanceOf = new Int32Array(n);
     const counts = new Array(NUM_TYPES).fill(0);
     for (let i = 0; i < n; i++) {
@@ -187,11 +191,14 @@ export class ArmyRenderer {
       const heading = h0 + dh * alpha;
       const packed = cur[k + 3];
       const type = packed & 7, team = (packed >> 3) & 1, state = (packed >> 4) & 7, onWall = (packed >> 7) & 1;
+      const officer = (packed >> 8) & 1, agent = (packed >> 9) & 1;
       const hpf = cur[k + 4];
       const speed = cur[k + 5];
       const y = groundY(x, z) + (onWall ? WALL_H : 0);
       this.px[i] = x; this.pz[i] = z; this.py[i] = y;
       this.teamOf[i] = team; this.stateOf[i] = state; this.onWallOf[i] = onWall;
+      this.officerOf[i] = officer; this.agentOf[i] = agent;
+      this.woundedOf[i] = hpf === -3 ? 1 : 0;
       const mesh = this.meshes[type];
       const idx = this.instanceOf[i];
       let lean = 0, bob = 0, roll = 0, sc = 1;
@@ -230,7 +237,10 @@ export class ArmyRenderer {
       // team colour, darkened when dead or wounded
       const c = this.color.copy(TEAM_COLORS[team]);
       if (type === HERO) c.lerp(TEAM_ALT[team], 0.5);
-      if (state === ST_DEAD) c.multiplyScalar(0.35);
+      if (officer) c.lerp(OFFICER_GOLD, 0.5);
+      if (agent) c.setRGB(0.12, 0.1, 0.2);
+      // wounded officers pulse so you can find and capture them
+      if (state === ST_DEAD) c.multiplyScalar(hpf === -3 ? 0.75 + 0.35 * Math.sin(t * 6) : 0.35);
       else if (state === ST_ROUT) c.multiplyScalar(0.7);
       else if (i % 3 === 0) c.lerp(TEAM_ALT[team], 0.35);
       mesh.livery.setColorAt(idx, c);

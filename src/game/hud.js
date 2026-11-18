@@ -1,6 +1,6 @@
 // DOM heads-up display: battle status, player status, support cooldowns, message feed, minimap,
 // and the command-mode regiment roster.
-import { WEAPONS, MAX_C4 } from './player.js';
+
 import { castleCells, cellX, cellZ, CELL_GATE, CELL_KEEP } from '../shared/castle.js';
 import { structTop } from './structures.js';
 import { SUPPORT } from './support.js';
@@ -19,9 +19,11 @@ export class Hud {
       orderButtons: $('orderButtons'), supplies: $('supplies'), selbox: $('selbox'), pauseTag: $('pauseTag'),
       vignette: $('vignette'), hitmarker: $('hitmarker'), crosshair: $('crosshair'), padCursor: $('padCursor'),
       objectives: $('objectives'), gearRow: $('gearRow'), streak: $('streak'),
+      timeline: $('timeline'), timelineBar: $('timelineBar'), timelineVal: $('timelineVal'),
+      interact: $('interact'), downed: $('downed'), downedText: $('downedText'), downedBar: $('downedBar'), lootTag: $('lootTag'),
     };
     this.mm = this.el.minimap.getContext('2d');
-    this.el.weaponSlots.innerHTML = WEAPONS.map((w, k) => `<span data-w="${k}">${k + 1} ${w.short}</span>`).join('');
+
     this.el.abilities.innerHTML = Object.entries(SUPPORT).map(([k, s]) =>
       `<div class="ability" data-a="${k}"><b>${s.name}</b><kbd>${s.key}</kbd> <span class="t"></span><div class="cd"></div></div>`).join('') +
       `<div class="ability" data-a="suv"><b>Armoured SUV</b><kbd>F</kbd> <span class="t"></span></div>`;
@@ -113,9 +115,9 @@ export class Hud {
       } else e.ammo.textContent = `${a.mag} / ${a.reserve}`;
     }
     for (const s of e.weaponSlots.children) s.classList.toggle('on', +s.dataset.w === player.weapon);
-    const padKeys = { airstrike: '◀', gunship: '▶', suv: 'Y' };
+    const padKeys = { airstrike: '◀', gunship: '▶', supply: '▼', suv: 'Y' };
     const c4Key = this.padMode ? '▲' : 'G';
-    const gear = `<span>C4 <kbd>${c4Key}</kbd> ${'■'.repeat(player.c4)}${'□'.repeat(MAX_C4 - player.c4)}</span>` +
+    const gear = `<span>C4 <kbd>${c4Key}</kbd> ${'■'.repeat(player.c4)}${'□'.repeat(Math.max(0, player.c4Max - player.c4))}</span>` +
       (player.resupplying ? '<span class="resupply">Resupplying from SUV</span>' : '');
     if (gear !== this.lastGear) { e.gearRow.innerHTML = gear; this.lastGear = gear; }
     for (const a of e.abilities.children) {
@@ -128,10 +130,11 @@ export class Hud {
         a.classList.toggle('ready', player.suv.alive);
         continue;
       }
-      const cd = support.cd[k], max = SUPPORT[k].cooldown;
+      const cd = support.cd[k], max = SUPPORT[k].cooldown, left = support.stock[k];
       a.querySelector('.cd').style.width = `${(1 - cd / max) * 100}%`;
-      a.querySelector('.t').textContent = cd > 0 ? `${Math.ceil(cd)}s` : 'ready';
-      a.classList.toggle('ready', cd <= 0);
+      a.querySelector('.t').textContent = left <= 0 ? 'none' : cd > 0 ? `${Math.ceil(cd)}s` : left === Infinity ? 'ready' : `×${left}`;
+      a.classList.toggle('ready', cd <= 0 && left > 0);
+      a.classList.toggle('empty', left <= 0);
     }
     e.supplies.innerHTML = `Supplies: <b>${Math.floor(supplies)}</b> (palisade costs 1.5 / m)`;
     if (rtsActive && regiments) this.updateRoster(regiments, rts);
@@ -161,9 +164,42 @@ export class Hud {
     this.setSelInfo(rts.mode ? this.el.selInfo.innerHTML : rts.selectedSummary());
   }
 
+  setLoadout(loadout) {
+    this.el.weaponSlots.innerHTML = loadout.map((w, k) => `<span data-w="${k}">${k + 1} ${w.short}</span>`).join('');
+  }
+
+  setSuvAvailable(on) {
+    const el = this.el.abilities.querySelector('[data-a="suv"]');
+    if (el) el.style.display = on ? '' : 'none';
+  }
+
+  // Timeline Instability meter (doc 4.7)
+  updateTimeline(v) {
+    const e = this.el;
+    e.timelineBar.style.width = `${Math.min(100, v)}%`;
+    e.timelineVal.textContent = `${v.toFixed(v < 10 ? 1 : 0)}%`;
+    e.timeline.classList.toggle('high', v >= 50);
+    e.timeline.classList.toggle('crit', v >= 80);
+  }
+
+  // Context prompts: capture a wounded officer; the downed / rescue overlay; loot collected
+  updatePlayerState(player, loot, padMode) {
+    const e = this.el;
+    const cap = player.capturable >= 0;
+    e.interact.classList.toggle('hidden', !cap);
+    if (cap) e.interact.innerHTML = `${padMode ? '<kbd>Y</kbd>' : '<kbd>E</kbd>'} Capture the wounded officer`;
+    e.downed.classList.toggle('hidden', !player.downed);
+    if (player.downed) {
+      e.downedText.textContent = player.rescue > 0 ? 'Your bodyguard is dragging you out…' : `Bleeding out in ${Math.ceil(player.bleed)}s. Your bodyguard is coming.`;
+      e.downedBar.style.width = `${Math.min(1, player.rescue / 2.5) * 100}%`;
+    }
+    e.lootTag.textContent = loot ? `⛁ ${loot} silver looted` : '';
+  }
+
   // Objective tracker. obj = { field, gate, open, assault } from the simulation
   updateObjectives(obj, heroes) {
     if (!obj) return;
+    if (obj.mission) { this.updateMissionObjectives(obj); return; }
     const hot = heroes && heroes.find((h) => h.name === 'Harry Hotspur');
     const king = heroes && heroes.find((h) => h.name === 'King Henry IV');
     const row = (done, failed, text, extra = '') => `<div class="obj ${done ? 'done' : ''} ${failed ? 'failed' : ''}"><i>${done ? '✔' : failed ? '✖' : '◆'}</i>${text}${extra}</div>`;
@@ -172,6 +208,21 @@ export class Hud {
       row(obj.assault, false, 'Break the royal field army', obj.assault ? '' : bar(1 - (obj.field - 0.3) / 0.7)) +
       row(obj.open, false, 'Breach the castle', obj.open ? '' : bar(1 - obj.gate) + '<small>C4, airstrikes, or batter the gate</small>') +
       row(king && king.hp <= 0, false, 'Kill King Henry IV');
+    if (html !== this.lastObj) { this.el.objectives.innerHTML = '<b>OBJECTIVES</b>' + html; this.lastObj = html; }
+  }
+
+  updateMissionObjectives(obj) {
+    const bar = (f) => `<div class="bar"><i style="width:${Math.max(0, Math.min(1, f)) * 100}%"></i></div>`;
+    const row = (done, text, extra = '') => `<div class="obj ${done ? 'done' : ''}"><i>${done ? '✔' : '◆'}</i>${text}${extra}</div>`;
+    let html;
+    if (obj.mission === 'raid' || obj.mission === 'convoy') {
+      html = row(obj.field < 0.15, obj.mission === 'convoy' ? 'Break the convoy escort' : 'Break the royal camp guard', bar(1 - (obj.field - 0.15) / 0.85)) +
+        row(false, 'Capture wounded officers (optional)') + row(false, 'Collect silver from fallen knights (optional)');
+    } else {
+      html = row(false, 'Protect the Temporal Beacon', bar(obj.beacon)) +
+        row(false, obj.waves ? `Survive the waves (${obj.wave}/${obj.waves})` : `Endless Siege — wave ${obj.wave}`, obj.attackers ? `<small>${obj.attackers} attackers on the field</small>` : '') +
+        row(false, 'Raise palisades in command view (<kbd>Tab</kbd> then <kbd>B</kbd>)');
+    }
     if (html !== this.lastObj) { this.el.objectives.innerHTML = '<b>OBJECTIVES</b>' + html; this.lastObj = html; }
   }
 

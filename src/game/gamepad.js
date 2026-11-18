@@ -212,23 +212,26 @@ export class Gamepad {
 
 // ---------------------------------------------------------------------------- bindings
 // Field (third-person shooter)
-//   Left stick move · Right stick look · LT aim / block · RT fire / swing · LB/RB previous/next weapon
-//   X reload · Y enter/exit SUV · A (hold) or L3 sprint · B sword <-> gun (handbrake in the SUV)
-//   D-pad left airstrike · D-pad right gunship · D-pad up breaching charge · D-pad down grenade launcher
+//   Left stick move · Right stick look · LT aim / block · RT fire / swing
+//   LB (hold) arm buckler · RB next weapon · B sword <-> gun (handbrake in the SUV) · R3 sledgehammer
+//   X reload · Y capture a wounded officer if one is close, otherwise enter/exit the SUV
+//   A (hold) or L3 sprint
+//   D-pad left airstrike · right gunship · up breaching charge · down supply drop
 //   View: command mode
-export function applyFieldBindings(pad, input) {
+export function applyFieldBindings(pad, input, ctx = {}) {
   input.virtual.clear();
   if (!pad.connected) { input.padSprint = false; return; }
   const press = (code) => { input.pressed.add(code); };
   if (pad.hit(BTN.VIEW)) press('Tab');
   if (pad.hit(BTN.X)) press('KeyR');
-  if (pad.hit(BTN.Y)) press('KeyF');
+  if (pad.hit(BTN.Y)) press(ctx.canCapture ? 'KeyE' : 'KeyF');
   if (pad.hit(BTN.LEFT)) press('KeyZ');
   if (pad.hit(BTN.RIGHT)) press('KeyX');
   if (pad.hit(BTN.UP)) press('KeyG');
-  if (pad.hit(BTN.DOWN)) press('Digit3');
+  if (pad.hit(BTN.DOWN)) press('KeyT');
   if (pad.hit(BTN.B)) press('KeyQ');
-  if (pad.hit(BTN.LB)) input.mouse.wheel -= 1;
+  if (pad.hit(BTN.RS)) press('KeyV');
+  if (pad.down(BTN.LB)) input.virtual.add('KeyC');
   if (pad.hit(BTN.RB)) input.mouse.wheel += 1;
   // Sprint: hold A, or click the left stick (stays on until the stick is released)
   if (pad.hit(BTN.LS)) input.padSprint = !input.padSprint;
@@ -243,8 +246,8 @@ export function applyFieldBindings(pad, input) {
 // Command (RTS) mode
 //   Left stick pan camera · Right stick move cursor · LT/RT zoom out/in
 //   A select (hold + move to box-select; works on the side panel too) · B order / cancel
-//   LB/RB cycle through your regiments · L3 select all · R3 hand selected back to the AI
-//   X hold · Y build palisade · D-pad up advance · D-pad down retreat
+//   LB/RB cycle through your regiments · L3 select all · R3 next formation
+//   X hold · Y charge · D-pad up advance · D-pad down retreat (AI control, follow, palisade: panel buttons)
 //   D-pad left airstrike at cursor · D-pad right gunship at cursor · Menu pause · View back to field
 export function applyCommandBindings(pad, input, rts, dt) {
   input.virtual.clear();
@@ -253,12 +256,12 @@ export function applyCommandBindings(pad, input, rts, dt) {
   if (pad.hit(BTN.VIEW)) press('Tab');
   if (pad.hit(BTN.MENU)) press('Space');
   if (pad.hit(BTN.X)) press('KeyH');
-  if (pad.hit(BTN.Y)) press('KeyB');
+  if (pad.hit(BTN.Y)) press('KeyC');
   if (pad.hit(BTN.UP)) rts.command('advance');
   if (pad.hit(BTN.DOWN)) press('KeyR');
   if (pad.hit(BTN.LEFT)) press('KeyZ');
   if (pad.hit(BTN.RIGHT)) press('KeyX');
-  if (pad.hit(BTN.RS)) press('KeyG');
+  if (pad.hit(BTN.RS)) rts.cycleFormation();
   if (pad.hit(BTN.LS)) rts.selectAll();
   if (pad.hit(BTN.LB)) rts.cycleSelection(-1);
   if (pad.hit(BTN.RB)) rts.cycleSelection(1);

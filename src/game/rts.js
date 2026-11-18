@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { groundY } from './world.js';
 import { marchTerrain } from './player.js';
-import { TEAM_REBEL, TEAM_CROWN, TYPE_NAMES, ORDER_NAMES, ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT, HALF_WORLD, PALISADE_COST_PER_M } from '../shared/constants.js';
+import { TEAM_REBEL, TEAM_CROWN, TYPE_NAMES, ORDER_NAMES, ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT, ORDER_CHARGE, ORDER_FOLLOW, FORMATIONS, FORMATION_NAMES, HALF_WORLD, PALISADE_COST_PER_M } from '../shared/constants.js';
 import { TEAM_COLORS } from './army.js';
 import { WALL_H } from '../shared/castle.js';
 
@@ -181,6 +181,11 @@ export class Rts {
     if (input.hit('KeyR')) this.command('retreat');
     if (input.hit('KeyG')) this.command('auto');
     if (input.hit('KeyB')) this.command('build');
+    if (input.hit('KeyC') && this.selected.size) this.command('charge');
+    if (input.hit('KeyF')) this.command('follow');
+    if (input.hit('Digit1')) this.command('f-line');
+    if (input.hit('Digit2')) this.command('f-wedge');
+    if (input.hit('Digit3')) this.command('f-shieldwall');
     if (input.hit('Escape')) { this.mode = null; this.buildStart = null; this.preview.visible = false; }
     if (input.hit('KeyZ')) { const g = this.groundUnderMouse(); if (g) support.callAirstrike(g); }
     if (input.hit('KeyX')) { const g = this.groundUnderMouse(); if (g) support.callGunship(g); }
@@ -236,12 +241,12 @@ export class Rts {
     if (m.rightClicked && this.selected.size && !overUi) {
       const enemy = this.regimentUnderMouse(armyRenderer, TEAM_CROWN);
       if (enemy >= 0) {
-        this.send({ t: 'order', regs: [...this.selected], order: { type: ORDER_ATTACK, target: enemy } });
+        this.send({ t: 'order', regs: [...this.selected], order: { type: this.mode === 'charge' ? ORDER_CHARGE : ORDER_ATTACK, target: enemy } });
         const er = this.regiments.find((r) => r.id === enemy);
         if (er) this.addMarker(er.cx, er.cz, 0xff5050);
       } else {
         const gp = this.groundUnderMouse();
-        if (gp) this.moveSelected(gp, this.mode === 'advance' || input.down('ControlLeft') ? ORDER_ATTACK_MOVE : ORDER_MOVE);
+        if (gp) this.moveSelected(gp, this.mode === 'charge' ? ORDER_CHARGE : this.mode === 'advance' || input.down('ControlLeft') ? ORDER_ATTACK_MOVE : ORDER_MOVE);
       }
       this.mode = null;
     }
@@ -276,7 +281,10 @@ export class Rts {
     const regs = [...this.selected];
     if (cmd === 'build') { this.mode = this.mode === 'build' ? null : 'build'; this.buildStart = null; return; }
     if (cmd === 'advance') { this.mode = 'advance'; this.ui.setSelInfo('Right-click where to advance (soldiers will engage anything on the way).'); return; }
+    if (cmd === 'charge') { this.mode = 'charge'; this.ui.setSelInfo('Right-click an enemy (or ground) to CHARGE at a run.'); return; }
     if (!regs.length) return;
+    if (cmd === 'follow') this.send({ t: 'order', regs, order: { type: ORDER_FOLLOW } });
+    if (cmd.startsWith('f-')) this.send({ t: 'formation', regs, formation: cmd.slice(2) });
     if (cmd === 'hold') this.send({ t: 'order', regs, order: { type: ORDER_HOLD } });
     if (cmd === 'auto') this.send({ t: 'auto', regs });
     if (cmd === 'retreat') {
@@ -285,6 +293,14 @@ export class Rts {
         if (r) this.send({ t: 'order', regs: [id], order: { type: ORDER_RETREAT, x: r.cx, z: Math.max(-190, r.cz - 60), facing: 0 } });
       }
     }
+  }
+
+  cycleFormation() {
+    const first = this.regiments.find((r) => this.selected.has(r.id));
+    if (!first) return;
+    const next = FORMATIONS[(FORMATIONS.indexOf(first.formation || 'line') + 1) % FORMATIONS.length];
+    this.command('f-' + next);
+    this.ui.setSelInfo(`Formation: ${FORMATION_NAMES[next]}`);
   }
 
   // Controller LB/RB: step through our regiments one at a time and fly the camera to each
@@ -376,7 +392,7 @@ export class Rts {
     if (!regs.length) return 'No regiments selected. Click a banner or drag a box around your troops.';
     if (regs.length === 1) {
       const r = regs[0];
-      return `<b>${r.name}</b> — ${TYPE_NAMES[r.type]}<br>${r.alive}/${r.initial} men · morale ${(r.morale * 100).toFixed(0)}% · ${ORDER_NAMES[r.order]}${r.auto ? ' (AI)' : ''}`;
+      return `<b>${r.name}</b> — ${TYPE_NAMES[r.type]}${r.vet ? ' ' + '★'.repeat(r.vet) : ''}<br>${r.alive}/${r.initial} men · morale ${(r.morale * 100).toFixed(0)}% · ${ORDER_NAMES[r.order]}${r.auto ? ' (AI)' : ''} · ${FORMATION_NAMES[r.formation] || 'Line'}${r.lieutenant ? `<br>Lieutenant: ${r.lieutenant}` : ''}`;
     }
     const men = regs.reduce((a, r) => a + r.alive, 0);
     return `<b>${regs.length} regiments</b> — ${men} men`;

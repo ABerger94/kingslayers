@@ -1,12 +1,28 @@
-// Off-map fire support: the airstrike (jet bombing run) and the attack helicopter.
+// Off-map support: the airstrike (jet bombing run), the attack helicopter and supply drops.
+// In the campaign each call-in is a consumable bought at the Depot (stock); the quick battle has unlimited.
 import * as THREE from 'three';
 import { groundY } from './world.js';
 import { TEAM_CROWN } from '../shared/constants.js';
+import { structTop } from './structures.js';
 
 export const SUPPORT = {
   airstrike: { name: 'Airstrike', key: 'Z', cooldown: 50 },
   gunship: { name: 'Gunship', key: 'X', cooldown: 80, duration: 30 },
+  supply: { name: 'Supply drop', key: 'T', cooldown: 20 },
 };
+
+function buildCrate() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.8, 0.8), new THREE.MeshLambertMaterial({ color: 0x4d5a3a })));
+  const chute = new THREE.Mesh(new THREE.SphereGeometry(2.2, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xd8d0b8, side: THREE.DoubleSide }));
+  chute.position.y = 5;
+  g.add(chute);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 5), new THREE.MeshBasicMaterial({ color: 0x40ff60 }));
+  beacon.position.y = 0.5;
+  g.add(beacon);
+  g.userData = { chute, beacon };
+  return g;
+}
 
 function buildJet() {
   const g = new THREE.Group();
@@ -54,7 +70,12 @@ function buildHeli() {
 export class Support {
   constructor(scene, fx, audio, army, send, player) {
     this.scene = scene; this.fx = fx; this.audio = audio; this.army = army; this.send = send; this.player = player;
-    this.cd = { airstrike: 0, gunship: 0 };
+    this.cd = { airstrike: 0, gunship: 0, supply: 0 };
+    this.stock = { airstrike: Infinity, gunship: Infinity, supply: Infinity };
+    this.used = { airstrike: 0, gunship: 0, supply: 0 };
+    this.crates = [];
+    this.onTech = null; // Timeline Instability hook
+    this.techCost = { airstrike: 6, gunship: 5, supply: 1 };
     this.jets = [];
     this.bombs = [];
     this.heli = null;
@@ -62,11 +83,21 @@ export class Support {
     this.onMessage = null;
   }
 
-  ready(kind) { return this.cd[kind] <= 0; }
+  ready(kind) { return this.cd[kind] <= 0 && this.stock[kind] > 0; }
+
+  // Spend one call-in from stock (Depot purchases); false if none left or still cooling down
+  spend(kind) {
+    if (this.stock[kind] <= 0) { this.onMessage?.(`No ${SUPPORT[kind].name.toLowerCase()} left — buy more at the Depot.`); return false; }
+    if (this.cd[kind] > 0) { this.onMessage?.(`${SUPPORT[kind].name} not ready (${Math.ceil(this.cd[kind])}s)`); return false; }
+    this.stock[kind]--;
+    this.used[kind]++;
+    this.cd[kind] = SUPPORT[kind].cooldown;
+    this.onTech?.(this.techCost[kind] || 0);
+    return true;
+  }
 
   callAirstrike(target) {
-    if (!this.ready('airstrike')) { this.onMessage?.(`Airstrike not ready (${Math.ceil(this.cd.airstrike)}s)`); return false; }
-    this.cd.airstrike = SUPPORT.airstrike.cooldown;
+    if (!this.spend('airstrike')) return false;
     this.audio.radio();
     this.onMessage?.('"Reaper Two-One, inbound. Thirty seconds… make that five hundred years."');
     // Bombing run from north to south, over the target
@@ -97,10 +128,46 @@ export class Support {
     this.audio.jet(Math.hypot(this.player.pos.x - target.x, this.player.pos.z - target.z));
   }
 
+  // Supply drop: an ammo crate parachutes onto the aim point; walk over it to restock
+  callSupply(target) {
+    if (!this.spend('supply')) return false;
+    this.audio.radio();
+    this.onMessage?.('Handler: "Crate inbound. Don\'t let the locals keep it."');
+    const crate = buildCrate();
+    const gy = groundY(target.x, target.z) + structTop(target.x, target.z);
+    crate.position.set(target.x, gy + 70, target.z);
+    this.scene.add(crate);
+    this.crates.push({ mesh: crate, gy, landed: false });
+    return true;
+  }
+
+  updateCrates(dt) {
+    const p = this.player;
+    for (let k = this.crates.length - 1; k >= 0; k--) {
+      const c = this.crates[k];
+      const m = c.mesh;
+      if (!c.landed) {
+        m.position.y -= dt * 9;
+        m.rotation.y += dt * 0.5;
+        if (m.position.y <= c.gy + 0.4) { m.position.y = c.gy + 0.4; c.landed = true; m.userData.chute.visible = false; this.fx.dirt(m.position.x, c.gy, m.position.z, 8); }
+      } else {
+        m.userData.beacon.visible = Math.sin(performance.now() / 150) > 0;
+        if (p.alive && !p.inVehicle && Math.hypot(p.pos.x - m.position.x, p.pos.z - m.position.z) < 2.6) {
+          p.loadout.forEach((w, i) => { if (!w.melee) p.ammo[i].reserve = Math.min(w.reserve * 1.5, p.ammo[i].reserve + Math.ceil(w.reserve * 0.6)); });
+          p.c4 = Math.min(p.c4Max, p.c4 + 1);
+          p.hp = Math.min(p.maxHp, p.hp + 60);
+          this.audio.reload();
+          this.onMessage?.('Supplies collected: ammunition, a breaching charge and a medkit.');
+          this.scene.remove(m);
+          this.crates.splice(k, 1);
+        }
+      }
+    }
+  }
+
   callGunship(center) {
-    if (!this.ready('gunship')) { this.onMessage?.(`Gunship not ready (${Math.ceil(this.cd.gunship)}s)`); return false; }
     if (this.heli) return false;
-    this.cd.gunship = SUPPORT.gunship.cooldown;
+    if (!this.spend('gunship')) return false;
     this.audio.radio();
     this.onMessage?.('"Viper One-Six on station. Painting targets."');
     const mesh = buildHeli();
@@ -113,6 +180,8 @@ export class Support {
   update(dt, camPos) {
     this.cd.airstrike = Math.max(0, this.cd.airstrike - dt);
     this.cd.gunship = Math.max(0, this.cd.gunship - dt);
+    this.cd.supply = Math.max(0, this.cd.supply - dt);
+    this.updateCrates(dt);
     for (let k = this.pending.length - 1; k >= 0; k--) {
       const p = this.pending[k];
       p.at -= dt;
