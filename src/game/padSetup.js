@@ -1,7 +1,10 @@
-// Controller Setup: a short wizard that records which raw button/axis the player's controller uses
-// for each action, for pads the browser doesn't report in the standard layout. Also shows a live
-// readout, which is handy for diagnosing a misbehaving controller.
-import { isHatRest, decodeHat, guessMap } from './gamepad.js';
+// The Controls screen:
+//  * Buttons: bind any controller button to any action (per mode: on foot, in the SUV, command view)
+//  * Sticks & feel: live stick test, look sensitivity, invert Y, aim assist, deadzone, vibration...
+//  * Calibrate: a wizard that learns the raw layout of controllers the browser doesn't report in the
+//    standard layout (common over Bluetooth)
+import { isHatRest, decodeHat, guessMap, BTN } from './gamepad.js';
+import { controls, ACTIONS, MODE_NAMES } from './controls.js';
 
 const STEPS = [
   { key: 'lx', kind: 'stick', text: 'Push the LEFT stick all the way RIGHT' },
@@ -36,6 +39,15 @@ export class PadSetup {
     this.live = document.getElementById('padSetupLive');
     this.open = false;
     this.onClose = null;
+    this.tab = 'buttons';
+    this.mode = 'field';
+    this.focus = 0;
+    this.listening = null; // action id waiting for a button press
+    this.padPrev = [];
+    this.el.addEventListener('click', (e) => this.onClick(e));
+    this.el.addEventListener('input', (e) => this.onSetting(e));
+    document.getElementById('psResetBindings').addEventListener('click', () => { controls.resetBindings(); this.renderBindings(); });
+    document.getElementById('psResetSettings').addEventListener('click', () => { controls.resetSettings(); this.renderSettings(); });
     document.getElementById('padSetupStart').addEventListener('click', () => this.begin());
     document.getElementById('padSetupSkip').addEventListener('click', () => this.next(null));
     document.getElementById('padSetupReset').addEventListener('click', () => {
@@ -47,19 +59,142 @@ export class PadSetup {
 
   show() {
     this.open = true;
-    this.pad.suspended = true;
     this.step = -1;
+    this.listening = null;
     this.el.classList.remove('hidden');
-    this.prompt.textContent = 'Connect your controller and press any button, then press Start mapping.';
+    this.prompt.textContent = 'Connect your controller and press any button, then press Start calibration.';
     this.progress.textContent = '';
+    this.setTab(this.tab);
+    this.renderBindings();
+    this.renderSettings();
+    this.padPrev = this.padButtons();
     this.loop();
   }
 
   close() {
     this.open = false;
-    this.pad.suspended = false;
+    this.listening = null;
+    this.step = -1;
     this.el.classList.add('hidden');
     this.onClose?.();
+  }
+
+  setTab(tab) {
+    this.tab = tab;
+    for (const b of this.el.querySelectorAll('[data-ps-tab]')) b.classList.toggle('on', b.dataset.psTab === tab);
+    for (const pg of this.el.querySelectorAll('[data-ps-page]')) pg.classList.toggle('hidden', pg.dataset.psPage !== tab);
+    this.listening = null;
+  }
+
+  visibleActions() { return ACTIONS[this.mode].filter((a) => !a.hidden); }
+
+  renderBindings() {
+    for (const b of this.el.querySelectorAll('[data-ps-mode]')) b.classList.toggle('on', b.dataset.psMode === this.mode);
+    const list = this.visibleActions();
+    this.focus = Math.min(this.focus, list.length - 1);
+    document.getElementById('psBindings').innerHTML = list.map((a, k) => `
+      <div class="bind ${k === this.focus ? 'focus' : ''} ${this.listening === a.id ? 'listening' : ''}" data-bind="${a.id}">
+        <span class="lbl">${a.label}</span>
+        <span class="btn">${this.listening === a.id ? 'press…' : controls.label(this.mode, a.id)}</span>
+        <span class="clr" data-clear="${a.id}" title="Unbind">✕</span>
+      </div>`).join('');
+  }
+
+  renderSettings() {
+    const st = controls.settings;
+    for (const el of this.el.querySelectorAll('[data-set]')) {
+      const k = el.dataset.set;
+      if (el.type === 'checkbox') el.checked = !!st[k]; else el.value = st[k];
+    }
+    for (const el of this.el.querySelectorAll('[data-val]')) {
+      const v = st[el.dataset.val];
+      el.textContent = el.dataset.val === 'lookSensitivity' ? `${v.toFixed(2)}×` : v.toFixed(2);
+    }
+  }
+
+  onSetting(e) {
+    const el = e.target;
+    if (!el.dataset.set) return;
+    controls.settings[el.dataset.set] = el.type === 'checkbox' ? el.checked : parseFloat(el.value);
+    controls.save();
+    this.renderSettings();
+  }
+
+  onClick(e) {
+    const t = e.target;
+    if (t.dataset.psTab) { this.setTab(t.dataset.psTab); return; }
+    if (t.dataset.psMode) { this.mode = t.dataset.psMode; this.focus = 0; this.listening = null; this.renderBindings(); return; }
+    if (t.dataset.clear) { controls.unbind(this.mode, t.dataset.clear); this.renderBindings(); return; }
+    const row = t.closest && t.closest('[data-bind]');
+    if (row) {
+      this.focus = this.visibleActions().findIndex((a) => a.id === row.dataset.bind);
+      this.startListening(row.dataset.bind);
+    }
+  }
+
+  startListening(id) {
+    this.listening = id;
+    this.listenSince = performance.now();
+    this.waitForRelease = true; // ignore the button that's still held from selecting the row
+    this.renderBindings();
+  }
+
+  // Standardized pad buttons (through the browser layout / calibration) for this frame
+  padButtons() { return this.pad.buttons.slice(); }
+
+  // Remapping and controller navigation of this screen
+  updateButtonsTab() {
+    const cur = this.padButtons();
+    const hit = (b) => cur[b] && !this.padPrev[b];
+    if (this.listening) {
+      if (this.waitForRelease) { if (!cur.some(Boolean)) this.waitForRelease = false; }
+      else {
+        const b = cur.findIndex((v, i) => v && !this.padPrev[i]);
+        if (b >= 0) { controls.bind(this.mode, this.listening, b); this.listening = null; this.renderBindings(); }
+        else if (performance.now() - this.listenSince > 8000) { this.listening = null; this.renderBindings(); }
+      }
+    } else {
+      const n = this.visibleActions().length;
+      let moved = false;
+      if (hit(BTN.DOWN)) { this.focus = (this.focus + 1) % n; moved = true; }
+      if (hit(BTN.UP)) { this.focus = (this.focus - 1 + n) % n; moved = true; }
+      if (hit(BTN.RIGHT)) { this.focus = Math.min(n - 1, this.focus + Math.ceil(n / 2)); moved = true; }
+      if (hit(BTN.LEFT)) { this.focus = Math.max(0, this.focus - Math.ceil(n / 2)); moved = true; }
+      if (hit(BTN.RB) || hit(BTN.LB)) {
+        const modes = Object.keys(MODE_NAMES);
+        this.mode = modes[(modes.indexOf(this.mode) + (hit(BTN.RB) ? 1 : modes.length - 1)) % modes.length];
+        this.focus = 0; moved = true;
+      }
+      if (moved) this.renderBindings();
+      if (hit(BTN.A)) this.startListening(this.visibleActions()[this.focus].id);
+      else if (hit(BTN.B)) this.close();
+    }
+    this.padPrev = cur;
+  }
+
+  drawStick(id, x, y) {
+    const cv = document.getElementById(id);
+    if (!cv) return;
+    const g = cv.getContext('2d'), W = cv.width, R = W / 2 - 6;
+    g.clearRect(0, 0, W, W);
+    g.strokeStyle = 'rgba(242,234,216,0.25)'; g.lineWidth = 1;
+    g.beginPath(); g.arc(W / 2, W / 2, R, 0, 7); g.stroke();
+    g.beginPath(); g.arc(W / 2, W / 2, R * (controls.settings.deadzone || 0.15), 0, 7); g.stroke();
+    g.fillStyle = (x || y) ? '#e0b341' : 'rgba(242,234,216,0.5)';
+    g.beginPath(); g.arc(W / 2 + x * R, W / 2 + y * R, 9, 0, 7); g.fill();
+  }
+
+  updateFeelTab() {
+    const p = this.pad;
+    this.drawStick('psStickL', p.lx, p.ly);
+    this.drawStick('psStickR', p.rx, p.ry);
+    document.getElementById('psLT').style.width = `${p.lt * 100}%`;
+    document.getElementById('psRT').style.width = `${p.rt * 100}%`;
+    const names = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L3', 'R3', '▲', '▼', '◀', '▶'];
+    document.getElementById('psPressed').textContent = p.buttons.map((v, i) => (v ? names[i] : null)).filter(Boolean).join(' ') || ' ';
+    const cur = this.padButtons();
+    if (cur[BTN.B] && !this.padPrev[BTN.B]) this.close();
+    this.padPrev = cur;
   }
 
   message(t) { this.prompt.textContent = t; }
@@ -150,6 +285,8 @@ export class PadSetup {
   loop() {
     if (!this.open) return;
     requestAnimationFrame(() => this.loop());
+    if (this.tab === 'buttons') this.updateButtonsTab();
+    if (this.tab === 'feel') this.updateFeelTab();
     const gp = this.pad.find();
     if (!gp) { this.info.textContent = 'No controller detected yet — press a button on it.'; this.live.textContent = ''; return; }
     this.info.textContent = `${gp.id} — browser layout: ${gp.mapping || 'non-standard'}${this.pad.customMap ? ' (custom mapping saved)' : ''}`;

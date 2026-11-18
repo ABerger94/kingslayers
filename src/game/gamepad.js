@@ -10,21 +10,19 @@
 // We handle both: standard pads are read directly; non-standard pads go through a layout guessed
 // from their resting state, or through a mapping the player recorded in Controller Setup.
 
-// Standard mapping button indices
-export const BTN = {
-  A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9, LS: 10, RS: 11,
-  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15,
-};
+import { BTN, controls } from './controls.js';
+export { BTN };
 
-const STICK_DEADZONE = 0.18;
+const deadzone = () => controls.settings.deadzone ?? 0.15;
 const TRIGGER_THRESHOLD = 0.35;
 const STORAGE_PREFIX = 'kingslayers.padmap.';
 
 function stick(x, y) {
   const m = Math.hypot(x, y);
-  if (m < STICK_DEADZONE) return [0, 0];
+  const dz = deadzone();
+  if (m < dz) return [0, 0];
   // Radial deadzone, rescaled so movement starts smoothly from zero
-  const k = Math.min(1, (m - STICK_DEADZONE) / (1 - STICK_DEADZONE)) / m;
+  const k = Math.min(1, (m - dz) / (1 - dz)) / m;
   return [x * k, y * k];
 }
 
@@ -114,6 +112,7 @@ export class Gamepad {
     this.lx = 0; this.ly = 0; this.rx = 0; this.ry = 0; this.lt = 0; this.rt = 0;
     this.buttons = new Array(17).fill(false);
     this.prev = new Array(17).fill(false);
+    this.values = new Array(17).fill(0); // analog 0..1 per button (triggers are analog)
     this.raw = null;
     this.rest = null; // resting axis values, captured when the pad first appears
     this.restId = '';
@@ -165,6 +164,10 @@ export class Gamepad {
     this.layout = this.customMap ? 'custom' : this.guess ? 'guessed' : 'standard';
     if (map) this.readMapped(gp, map);
     else this.readStandard(gp);
+    if (controls.settings.swapSticks) {
+      [this.lx, this.rx] = [this.rx, this.lx];
+      [this.ly, this.ry] = [this.ry, this.ly];
+    }
     if (this.lx || this.ly || this.rx || this.ry || this.lt > 0.1 || this.rt > 0.1 || this.buttons.some(Boolean)) this.lastUsed = now;
   }
 
@@ -177,7 +180,10 @@ export class Gamepad {
     [this.lx, this.ly] = stick(ax(0), ax(1));
     [this.rx, this.ry] = stick(ax(2), ax(3));
     const b = gp.buttons;
-    for (let i = 0; i < this.buttons.length; i++) this.buttons[i] = !!(b[i] && (b[i].pressed || b[i].value > 0.5));
+    for (let i = 0; i < this.buttons.length; i++) {
+      this.buttons[i] = !!(b[i] && (b[i].pressed || b[i].value > 0.5));
+      this.values[i] = b[i] ? Math.max(b[i].value || 0, b[i].pressed ? 1 : 0) : 0;
+    }
     this.lt = b[BTN.LT] ? b[BTN.LT].value : 0;
     this.rt = b[BTN.RT] ? b[BTN.RT].value : 0;
     this.buttons[BTN.LT] = this.lt > TRIGGER_THRESHOLD;
@@ -187,23 +193,29 @@ export class Gamepad {
   readMapped(gp, map) {
     [this.lx, this.ly] = stick(readStickAxis(gp, map.lx), readStickAxis(gp, map.ly));
     [this.rx, this.ry] = stick(readStickAxis(gp, map.rx), readStickAxis(gp, map.ry));
-    for (let i = 0; i < this.buttons.length; i++) this.buttons[i] = readBinding(gp, map.buttons[i]) > 0.5;
-    this.lt = readBinding(gp, map.buttons[BTN.LT]);
-    this.rt = readBinding(gp, map.buttons[BTN.RT]);
+    for (let i = 0; i < this.buttons.length; i++) {
+      this.values[i] = readBinding(gp, map.buttons[i]);
+      this.buttons[i] = this.values[i] > 0.5;
+    }
+    this.lt = this.values[BTN.LT];
+    this.rt = this.values[BTN.RT];
     this.buttons[BTN.LT] = this.lt > TRIGGER_THRESHOLD;
     this.buttons[BTN.RT] = this.rt > TRIGGER_THRESHOLD;
   }
 
-  down(b) { return this.buttons[b]; }
-  hit(b) { return this.buttons[b] && !this.prev[b]; }
-  released(b) { return !this.buttons[b] && this.prev[b]; }
+  down(b) { return b !== null && b !== undefined && this.buttons[b]; }
+  value(b) { return b === null || b === undefined ? 0 : this.values[b]; }
+  hit(b) { return b !== null && b !== undefined && this.buttons[b] && !this.prev[b]; }
+  released(b) { return b !== null && b !== undefined && !this.buttons[b] && this.prev[b]; }
+  // First button pressed this frame (for remapping)
+  anyHit() { for (let i = 0; i < this.buttons.length; i++) if (this.hit(i)) return i; return -1; }
 
   // True if the controller was the most recently used input device
   active(now) { return this.connected && now - this.lastUsed < 4000; }
 
   rumble(strong, weak, ms) {
     const a = this.raw && this.raw.vibrationActuator;
-    if (!a || !a.playEffect) return;
+    if (!a || !a.playEffect || !controls.settings.vibration) return;
     try {
       a.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strong), weakMagnitude: Math.min(1, weak) }).catch(() => {});
     } catch { /* not supported */ }
@@ -211,80 +223,90 @@ export class Gamepad {
 }
 
 // ---------------------------------------------------------------------------- bindings
-// Field (third-person shooter)
-//   Left stick move · Right stick look · LT aim / block · RT fire / swing
-//   LB (hold) arm buckler · RB next weapon · B sword <-> gun (handbrake in the SUV) · R3 sledgehammer
-//   X reload · Y capture a wounded officer if one is close, otherwise enter/exit the SUV
-//   A (hold) or L3 sprint
-//   D-pad left airstrike · right gunship · up breaching charge · down supply drop
-//   View: command mode
+// Buttons are bound to actions per mode in controls.js (remappable in the Controls screen).
+// The sticks are fixed: left = move / steer / pan, right = look / command cursor.
+const FIELD_PRESS = { reload: 'KeyR', melee: 'KeyQ', hammer: 'KeyV', airstrike: 'KeyZ', gunship: 'KeyX', c4: 'KeyG', supply: 'KeyT', command: 'Tab' };
+
 export function applyFieldBindings(pad, input, ctx = {}) {
   input.virtual.clear();
+  input.padThrottle = 0;
   if (!pad.connected) { input.padSprint = false; return; }
   const press = (code) => { input.pressed.add(code); };
-  if (pad.hit(BTN.VIEW)) press('Tab');
-  if (pad.hit(BTN.X)) press('KeyR');
-  if (pad.hit(BTN.Y)) press(ctx.canCapture ? 'KeyE' : 'KeyF');
-  if (pad.hit(BTN.LEFT)) press('KeyZ');
-  if (pad.hit(BTN.RIGHT)) press('KeyX');
-  if (pad.hit(BTN.UP)) press('KeyG');
-  if (pad.hit(BTN.DOWN)) press('KeyT');
-  if (pad.hit(BTN.B)) press('KeyQ');
-  if (pad.hit(BTN.RS)) press('KeyV');
-  if (pad.down(BTN.LB)) input.virtual.add('KeyC');
-  if (pad.hit(BTN.RB)) input.mouse.wheel += 1;
-  // Sprint: hold A, or click the left stick (stays on until the stick is released)
-  if (pad.hit(BTN.LS)) input.padSprint = !input.padSprint;
-  if (!pad.lx && !pad.ly) input.padSprint = false;
-  if (pad.down(BTN.A) || input.padSprint) input.virtual.add('ShiftLeft');
-  if (pad.down(BTN.B)) input.virtual.add('Space');
-  // Triggers act as the mouse buttons
-  syncButton(pad, input, BTN.RT, 'left');
-  syncButton(pad, input, BTN.LT, 'right');
+  const f = controls.bindings.field;
+  if (pad.hit(f.settings)) ctx.openSettings?.();
+
+  if (ctx.inVehicle) {
+    // Driving: left stick steers; the bound triggers are analog throttle / brake
+    const v = controls.bindings.vehicle;
+    input.padThrottle = pad.value(v.accelerate) - pad.value(v.brake);
+    if (pad.down(v.handbrake)) input.virtual.add('Space');
+    if (pad.hit(v.exit)) press('KeyF');
+    // support call-ins and the command view still work from the driver's seat
+    for (const id of ['airstrike', 'gunship', 'supply', 'command']) {
+      const b = f[id];
+      if (b !== v.accelerate && b !== v.brake && b !== v.handbrake && b !== v.exit && pad.hit(b)) press(FIELD_PRESS[id]);
+    }
+    releaseMouse(input);
+    return;
+  }
+
+  for (const [id, code] of Object.entries(FIELD_PRESS)) if (pad.hit(f[id])) press(code);
+  if (pad.hit(f.interact)) press(ctx.canCapture ? 'KeyE' : 'KeyF');
+  if (pad.hit(f.nextWeapon)) input.mouse.wheel += 1;
+  if (pad.down(f.buckler)) input.virtual.add('KeyC');
+  // Sprint: hold, or (default) press once to run until you stop moving
+  if (controls.settings.sprintToggle) {
+    if (pad.hit(f.sprint)) input.padSprint = !input.padSprint;
+    if (!pad.lx && !pad.ly) input.padSprint = false;
+    if (input.padSprint) input.virtual.add('ShiftLeft');
+  } else if (pad.down(f.sprint)) input.virtual.add('ShiftLeft');
+  syncButton(pad, input, f.fire, 'left');
+  syncButton(pad, input, f.aim, 'right');
 }
 
-// Command (RTS) mode
-//   Left stick pan camera · Right stick move cursor · LT/RT zoom out/in
-//   A select (hold + move to box-select; works on the side panel too) · B order / cancel
-//   LB/RB cycle through your regiments · L3 select all · R3 next formation
-//   X hold · Y charge · D-pad up advance · D-pad down retreat (AI control, follow, palisade: panel buttons)
-//   D-pad left airstrike at cursor · D-pad right gunship at cursor · Menu pause · View back to field
 export function applyCommandBindings(pad, input, rts, dt) {
   input.virtual.clear();
   if (!pad.connected) return;
   const press = (code) => { input.pressed.add(code); };
-  if (pad.hit(BTN.VIEW)) press('Tab');
-  if (pad.hit(BTN.MENU)) press('Space');
-  if (pad.hit(BTN.X)) press('KeyH');
-  if (pad.hit(BTN.Y)) press('KeyC');
-  if (pad.hit(BTN.UP)) rts.command('advance');
-  if (pad.hit(BTN.DOWN)) press('KeyR');
-  if (pad.hit(BTN.LEFT)) press('KeyZ');
-  if (pad.hit(BTN.RIGHT)) press('KeyX');
-  if (pad.hit(BTN.RS)) rts.cycleFormation();
-  if (pad.hit(BTN.LS)) rts.selectAll();
-  if (pad.hit(BTN.LB)) rts.cycleSelection(-1);
-  if (pad.hit(BTN.RB)) rts.cycleSelection(1);
-  input.mouse.wheel += (pad.lt - pad.rt) * dt * 9;
+  const c = controls.bindings.command;
+  if (pad.hit(c.field)) press('Tab');
+  if (pad.hit(c.pause)) press('Space');
+  if (pad.hit(c.hold)) press('KeyH');
+  if (pad.hit(c.charge)) rts.command('charge');
+  if (pad.hit(c.advance)) rts.command('advance');
+  if (pad.hit(c.retreat)) press('KeyR');
+  if (pad.hit(c.airstrikeC)) press('KeyZ');
+  if (pad.hit(c.gunshipC)) press('KeyX');
+  if (pad.hit(c.formation)) rts.cycleFormation();
+  if (pad.hit(c.selectAll)) rts.selectAll();
+  if (pad.hit(c.prevSquad)) rts.cycleSelection(-1);
+  if (pad.hit(c.nextSquad)) rts.cycleSelection(1);
+  input.mouse.wheel += (pad.value(c.zoomOut) - pad.value(c.zoomIn)) * dt * 9;
 
-  // Virtual cursor on the right stick (accelerates the longer you push)
+  // Virtual cursor on the right stick (accelerates the longer you push); left stick pans (in rts.js)
   const m = input.mouse;
   const mag = Math.hypot(pad.rx, pad.ry);
   if (mag > 0) {
-    const speed = 350 + 1100 * mag * mag;
+    const speed = (350 + 1100 * mag * mag) * (controls.settings.lookSensitivity || 1);
     m.x = Math.max(0, Math.min(innerWidth - 1, m.x + pad.rx / mag * mag * speed * dt));
     m.y = Math.max(0, Math.min(innerHeight - 1, m.y + pad.ry / mag * mag * speed * dt));
   }
 
-  // A = left click. Over HTML panels (roster, order buttons) it presses the element under the cursor.
-  if (pad.hit(BTN.A)) {
+  // Select = left click. Over HTML panels (roster, order buttons) it presses the element under the cursor.
+  if (pad.hit(c.select)) {
     const el = document.elementFromPoint(m.x, m.y);
     const ui = el && el.closest && el.closest('#rtsPanel button, #rtsPanel .reg');
     if (ui) ui.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: m.x, clientY: m.y }));
     else { m.left = true; m.leftClicked = true; input.padHeld.left = true; }
   }
-  if (pad.released(BTN.A) && input.padHeld.left) { m.left = false; m.leftReleased = true; input.padHeld.left = false; }
-  if (pad.hit(BTN.B)) m.rightClicked = true;
+  if (pad.released(c.select) && input.padHeld.left) { m.left = false; m.leftReleased = true; input.padHeld.left = false; }
+  if (pad.hit(c.order)) m.rightClicked = true;
+}
+
+function releaseMouse(input) {
+  for (const which of ['left', 'right']) {
+    if (input.padHeld[which]) { input.mouse[which] = false; input.padHeld[which] = false; }
+  }
 }
 
 // Mirror a pad button onto a mouse button without clobbering a real mouse press

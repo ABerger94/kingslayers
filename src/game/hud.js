@@ -4,6 +4,7 @@
 import { castleCells, cellX, cellZ, CELL_GATE, CELL_KEEP } from '../shared/castle.js';
 import { structTop } from './structures.js';
 import { SUPPORT } from './support.js';
+import { controls } from './controls.js';
 import { HALF_WORLD, WORLD_SIZE, SNAP_STRIDE, TEAM_REBEL, ST_DEAD, ST_ROUT, TYPE_NAMES, ORDER_NAMES } from '../shared/constants.js';
 import { WOODS } from '../shared/terrain.js';
 
@@ -73,7 +74,7 @@ export class Hud {
   setMode(rts, pad = this.padMode) {
     this.rtsMode = rts;
     this.padMode = pad;
-    const key = pad ? '<kbd>View ⧉</kbd>' : '<kbd>Tab</kbd>';
+    const key = pad ? `<kbd>${controls.label(rts ? 'command' : 'field', rts ? 'field' : 'command')}</kbd>` : '<kbd>Tab</kbd>';
     this.el.modeTag.innerHTML = rts ? `COMMAND — ${key} back to the field` : `FIELD — ${key} command view`;
     this.el.crosshair.style.display = rts ? 'none' : '';
     document.body.classList.toggle('pad', !!pad);
@@ -115,8 +116,9 @@ export class Hud {
       } else e.ammo.textContent = `${a.mag} / ${a.reserve}`;
     }
     for (const s of e.weaponSlots.children) s.classList.toggle('on', +s.dataset.w === player.weapon);
-    const padKeys = { airstrike: '◀', gunship: '▶', supply: '▼', suv: 'Y' };
-    const c4Key = this.padMode ? '▲' : 'G';
+    const L = (id) => controls.label('field', id);
+    const padKeys = { airstrike: L('airstrike'), gunship: L('gunship'), supply: L('supply'), suv: L('interact') };
+    const c4Key = this.padMode ? L('c4') : 'G';
     const gear = `<span>C4 <kbd>${c4Key}</kbd> ${'■'.repeat(player.c4)}${'□'.repeat(Math.max(0, player.c4Max - player.c4))}</span>` +
       (player.resupplying ? '<span class="resupply">Resupplying from SUV</span>' : '');
     if (gear !== this.lastGear) { e.gearRow.innerHTML = gear; this.lastGear = gear; }
@@ -187,7 +189,7 @@ export class Hud {
     const e = this.el;
     const cap = player.capturable >= 0;
     e.interact.classList.toggle('hidden', !cap);
-    if (cap) e.interact.innerHTML = `${padMode ? '<kbd>Y</kbd>' : '<kbd>E</kbd>'} Capture the wounded officer`;
+    if (cap) e.interact.innerHTML = `<kbd>${padMode ? controls.label('field', 'interact') : 'E'}</kbd> Capture the wounded officer`;
     e.downed.classList.toggle('hidden', !player.downed);
     if (player.downed) {
       e.downedText.textContent = player.rescue > 0 ? 'Your bodyguard is dragging you out…' : `Bleeding out in ${Math.ceil(player.bleed)}s. Your bodyguard is coming.`;

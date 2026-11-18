@@ -232,3 +232,39 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
 #hubToast.on { opacity: 1; }
 #results ul { text-align: left; font-size: 14px; }
 @media (max-width: 900px) { .campaign, .settlement { grid-template-columns: 1fr; } }
+
+/* ---- Controls screen */
+#padSetup .card { width: min(860px, 96vw); max-height: 92vh; overflow-y: auto; }
+#padSetup .psHead { display: flex; gap: 14px; align-items: center; }
+#padSetup .psHead h2 { margin: 0; }
+#padSetup .psHead #padSetupClose { margin-left: auto; }
+#padSetup .psTabs, #padSetup .psModes { display: flex; gap: 6px; }
+#padSetup .psModes { margin: 10px 0 6px; }
+#padSetup button { margin: 0; }
+#padSetup button.on { background: #806536; }
+#padSetup .small { font-size: 12px; opacity: .85; }
+#psBindings { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+#psBindings .bind { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+#psBindings .bind:hover, #psBindings .bind.focus { border-color: var(--rebel); background: rgba(224,179,65,0.1); }
+#psBindings .bind .lbl { flex: 1; font-size: 13px; }
+#psBindings .bind .btn { min-width: 74px; text-align: center; font: bold 12px monospace; padding: 3px 6px; background: rgba(255,255,255,0.08); border-radius: 3px; }
+#psBindings .bind.listening .btn { background: var(--rebel); color: #000; animation: blink 0.8s infinite; }
+#psBindings .bind .clr { opacity: .5; font-size: 12px; padding: 0 4px; }
+#psBindings .bind .clr:hover { opacity: 1; }
+@keyframes blink { 50% { opacity: .55; } }
+.psFeel { display: grid; grid-template-columns: auto 1fr; gap: 20px; margin-top: 10px; }
+.psSticks { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.psSticks > div { display: flex; flex-direction: column; align-items: center; font-size: 12px; }
+.psSticks canvas { border-radius: 50%; background: rgba(255,255,255,0.05); border: 1px solid var(--line); }
+.psTriggers { width: 130px; gap: 4px; font-size: 11px; }
+.psTriggers .bar { height: 6px; }
+.psTriggers .bar i { background: var(--rebel); width: 0; }
+#psPressed { font: 11px monospace; opacity: .8; min-height: 14px; text-align: center; }
+.psSettings { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.psSettings input[type=range] { width: 200px; vertical-align: middle; }
+@media (max-width: 700px) { #psBindings { grid-template-columns: 1fr; } .psFeel { grid-template-columns: 1fr; } }
+#padSetup .card { background: #19150f; }
+.psTriggers { display: flex; flex-direction: column; }
+.psTriggers > div { width: 130px; display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 6px; }
+.psTriggers > div .bar { width: 100%; }
+.psTriggers #psPressed { display: block; width: 130px; }
