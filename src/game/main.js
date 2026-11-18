@@ -463,7 +463,7 @@ function frame() {
     return;
   }
   if (rts.active) applyCommandBindings(pad, input, rts, realDt);
-  else applyFieldBindings(pad, input, { canCapture: player.capturable >= 0 });
+  else applyFieldBindings(pad, input, { canCapture: player.capturable >= 0, inVehicle: player.inVehicle, openSettings: openPadSetup });
   if (input.hit('Tab') && !state.outcome) toggleMode();
   const scale = rts.active ? (rts.paused ? 0 : 0.2) : 1;
   const dt = realDt * scale;

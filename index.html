@@ -82,7 +82,7 @@
         <button id="continueBtn" class="hidden">Continue campaign</button>
         <button id="newCampaignBtn">New campaign</button>
         <button id="startBtn" class="secondary">Quick battle: Shrewsbury</button>
-        <button id="padSetupOpen" class="secondary">🎮 Controller setup</button>
+        <button id="padSetupOpen" class="secondary">🎮 Controls</button>
         <span id="padPrompt" class="hidden">or press <kbd>A</kbd></span>
       </div>
       <div id="difficulty">
@@ -117,10 +117,10 @@
         </div>
         <div class="cols">
           <ul>
-            <li><b>Controller, field:</b> sticks move/look · <kbd>LT</kbd> aim/block · <kbd>RT</kbd> fire/swing</li>
+            <li><b>Controller, field (default buttons, all remappable in Controls):</b> left stick move · right stick look</li>
+            <li><kbd>RT</kbd> fire/swing · <kbd>LT</kbd> aim/block · <kbd>L3</kbd> sprint · <kbd>X</kbd> reload · <kbd>Y</kbd> capture / enter SUV</li>
             <li><kbd>LB</kbd> hold buckler · <kbd>RB</kbd> next weapon · <kbd>B</kbd> sword ⇄ gun · <kbd>R3</kbd> sledgehammer</li>
-            <li><kbd>X</kbd> reload · <kbd>Y</kbd> capture / enter SUV · hold <kbd>A</kbd> or <kbd>L3</kbd> sprint</li>
-            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> C4 · <kbd>▼</kbd> supply drop</li>
+            <li>D-pad <kbd>◀</kbd> airstrike · <kbd>▶</kbd> gunship · <kbd>▲</kbd> C4 · <kbd>▼</kbd> supply drop · <kbd>Menu</kbd> pause &amp; Controls</li>
           </ul>
           <ul>
             <li><b>Controller, command:</b> <kbd>View</kbd> switch · <kbd>Menu</kbd> pause · left stick pan · right stick cursor</li>
@@ -150,18 +150,61 @@
 
   <div id="padSetup" class="overlay hidden">
     <div class="card">
-      <h2>Controller setup</h2>
-      <p class="kicker" id="padSetupInfo"></p>
-      <p>If your controller aims by itself, buttons do the wrong thing, or the D-pad doesn't respond,
-        map it here: press each control when asked. The mapping is saved in this browser.</p>
-      <div id="padSetupPrompt"></div>
-      <div id="padSetupProgress"></div>
-      <pre id="padSetupLive"></pre>
-      <div class="row">
-        <button id="padSetupStart">Start mapping</button>
-        <button id="padSetupSkip" class="secondary">Skip this one</button>
-        <button id="padSetupReset" class="secondary">Clear saved mapping</button>
+      <div class="psHead">
+        <h2>Controls</h2>
+        <div class="psTabs">
+          <button data-ps-tab="buttons" class="on">Buttons</button>
+          <button data-ps-tab="feel">Sticks &amp; feel</button>
+          <button data-ps-tab="calibrate">Calibrate</button>
+        </div>
         <button id="padSetupClose">Close</button>
+      </div>
+      <p class="kicker" id="padSetupInfo"></p>
+
+      <div data-ps-page="buttons">
+        <p class="small">The left stick always moves and the right stick always looks around. Click an action (or highlight it
+          with the D-pad and press <kbd>A</kbd>), then press the controller button you want for it. If that button was used
+          by another action, the two swap.</p>
+        <div class="psModes">
+          <button data-ps-mode="field" class="on">On foot</button>
+          <button data-ps-mode="vehicle">In the SUV</button>
+          <button data-ps-mode="command">Command view</button>
+        </div>
+        <div id="psBindings"></div>
+        <div class="row"><button id="psResetBindings" class="secondary">Reset buttons to default</button></div>
+      </div>
+
+      <div data-ps-page="feel" class="hidden">
+        <div class="psFeel">
+          <div class="psSticks">
+            <div><canvas id="psStickL" width="120" height="120"></canvas><span>Left stick: move</span></div>
+            <div><canvas id="psStickR" width="120" height="120"></canvas><span>Right stick: look</span></div>
+            <div class="psTriggers"><div>LT <div class="bar"><i id="psLT"></i></div></div><div>RT <div class="bar"><i id="psRT"></i></div></div><div id="psPressed"></div></div>
+          </div>
+          <div class="psSettings">
+            <label>Look sensitivity <input type="range" min="0.3" max="2.5" step="0.05" data-set="lookSensitivity"> <b data-val="lookSensitivity"></b></label>
+            <label>Stick deadzone <input type="range" min="0.05" max="0.35" step="0.01" data-set="deadzone"> <b data-val="deadzone"></b></label>
+            <label><input type="checkbox" data-set="invertY"> Invert look up/down</label>
+            <label><input type="checkbox" data-set="aimAssist"> Aim assist (slows the aim over enemies)</label>
+            <label><input type="checkbox" data-set="sprintToggle"> Sprint toggles (press once to run)</label>
+            <label><input type="checkbox" data-set="swapSticks"> Swap sticks (only if your controller reports them the wrong way round)</label>
+            <label><input type="checkbox" data-set="vibration"> Vibration</label>
+            <div class="row"><button id="psResetSettings" class="secondary">Reset to default</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div data-ps-page="calibrate" class="hidden">
+        <p class="small">Only needed if the sticks or buttons register wrongly (common over Bluetooth): the game will ask you to
+          press each control so it learns your controller's layout. Saved in this browser.</p>
+        <div id="padSetupPrompt"></div>
+        <div id="padSetupProgress"></div>
+        <pre id="padSetupLive"></pre>
+        <div class="row">
+          <button id="padSetupStart">Start calibration</button>
+          <button id="padSetupSkip" class="secondary">Skip this one</button>
+          <button id="padSetupReset" class="secondary">Clear calibration</button>
+        </div>
       </div>
     </div>
   </div>

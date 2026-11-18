@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { groundY } from './world.js';
 import { structTop } from './structures.js';
+import { controls } from './controls.js';
 import { inRiver, inWoods } from '../shared/terrain.js';
 import { HALF_WORLD, TEAM_REBEL, TEAM_CROWN } from '../shared/constants.js';
 
@@ -218,14 +219,18 @@ export class Player {
       // Controller look: rate-based, slower when aiming down sights, with light aim assist
       const pad = input.pad;
       // Aim assist eases in and out instead of snapping, so the stick doesn't feel sticky/jerky
-      const wantAssist = this.aimOnEnemy && !this.inVehicle && !this.melee ? 0.6 : 1;
+      const set = controls.settings;
+      const wantAssist = set.aimAssist && this.aimOnEnemy && !this.inVehicle && !this.melee ? 0.6 : 1;
       this.assist += (wantAssist - this.assist) * Math.min(1, dt * 6);
-      if (pad.connected && (pad.rx || pad.ry)) {
-        const rate = (this.aiming ? 1.4 : 3.0) * this.assist;
-        // squared response curve gives fine control near the centre
-        const cx = pad.rx * Math.abs(pad.rx), cy = pad.ry * Math.abs(pad.ry);
-        this.yaw -= cx * rate * dt;
-        this.pitch -= cy * rate * 0.7 * dt;
+      // Right stick looks around. Response curve gives fine control near the centre; holding the
+      // stick fully over ramps the turn speed up so you can spin around quickly.
+      const mag = Math.hypot(pad.rx, pad.ry);
+      this.turnBoost = mag > 0.9 && !this.aiming ? Math.min(1, (this.turnBoost || 0) + dt * 2.5) : 0;
+      if (pad.connected && mag > 0) {
+        const curve = (v) => Math.sign(v) * Math.pow(Math.abs(v), 1.6);
+        const rate = (this.aiming ? 1.6 : 3.4) * (set.lookSensitivity || 1) * this.assist * (1 + this.turnBoost * 0.8);
+        this.yaw -= curve(pad.rx) * rate * dt;
+        this.pitch -= curve(pad.ry) * rate * 0.75 * dt * (set.invertY ? -1 : 1);
       }
       this.pitch = Math.max(-1.2, Math.min(0.9, this.pitch));
       if (input.hit('KeyF')) this.toggleVehicle();
@@ -338,7 +343,7 @@ export class Player {
       // Controller: RT accelerate, LT brake / reverse, left stick steer
       const pad = input.pad;
       if (pad.connected) {
-        throttle += pad.rt - pad.lt;
+        throttle += input.padThrottle || 0; // bound accelerate / brake (triggers by default)
         steer -= pad.lx;
         throttle = Math.max(-1, Math.min(1, throttle));
         steer = Math.max(-1, Math.min(1, steer));
