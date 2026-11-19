@@ -3,7 +3,8 @@
 import {
   ITEMS, GUN_IDS, BUILDINGS, BEACON_UPGRADES, MISSIONS, SQUAD_TYPES,
   saveCampaign, missionStatus, count, popCap, armySize, canAfford, pay, costText, production, reinforceCost,
-  prisonerAction, endingOptions, chooseEnding, ENDINGS, log,
+  prisonerAction, endingOptions, chooseEnding, ENDINGS, log, TRAITS, traitFor, traitDesc, assignLieutenant,
+  SKILLS, ensureHero, xpToReach, buySkill, heroPerks,
 } from './campaign.js';
 
 const $ = (id) => document.getElementById(id);
@@ -77,10 +78,13 @@ export class Hub {
     if (this.tab === 'depot') body.innerHTML = this.depotHtml();
     if (this.tab === 'army') body.innerHTML = this.armyHtml();
     if (this.tab === 'keep') body.innerHTML = this.keepHtml();
+    if (this.tab === 'operative') body.innerHTML = this.operativeHtml();
     if (this.tab === 'campaign') this.drawMap();
     if (this.tab === 'settlement') this.initSettlementCanvas();
     const badge = $('hubTabs').querySelector('[data-tab="keep"] .badge');
     if (badge) badge.textContent = c.prisoners.length || '';
+    const pts = $('hubTabs').querySelector('.pts');
+    if (pts) pts.textContent = ensureHero(c).points || '';
   }
 
   // ------------------------------------------------------------------ campaign map + briefing
@@ -274,7 +278,7 @@ export class Hub {
       else if (it.kind === 'stock') action = `<span>Have ${c.stock[id] || 0}/${it.max}</span> <button data-buy="${id}" ${c.res.silver >= it.price && (c.stock[id] || 0) < it.max ? '' : 'disabled'}>Buy · ${it.price}</button>`;
       else if (c.owned[id]) action = '<span class="owned">Owned</span>';
       else action = `<button data-buy="${id}" ${c.res.silver >= it.price ? '' : 'disabled'}>Buy · ${it.price}</button>`;
-      return `<div class="item ${locked ? 'locked' : ''}"><div class="tier">T${it.tier}</div><b>${it.name}</b><p>${it.desc}</p><small>Instability per use: ${it.inst >= 1 ? '+' + it.inst + '%' : it.inst >= 0.1 ? '+' + it.inst + '% / shot' : 'minimal'}</small><div class="buy">${action}</div></div>`;
+      return `<div class="item ${locked ? 'locked' : ''}"><div class="tier">T${it.tier}</div><b>${it.name}</b><p>${it.desc}</p><small>Instability per use: ${it.inst === 0 ? 'none' : it.kind === 'gun' && it.inst >= 0.1 ? '+' + it.inst + '% / shot' : it.inst >= 1 ? '+' + it.inst + '%' : 'minimal'}</small><div class="buy">${action}</div></div>`;
     }).join('');
     return `<div class="depot"><p class="handler">Handler: "Silver you loot in 1403 is melted down and sent forward; I buy what you need with it and send it back. Upgrade the Beacon for heavier gear. And remember: every gadget I send cracks the timeline a little more."</p><div class="items">${cards}</div></div>`;
   }
@@ -287,18 +291,52 @@ export class Hub {
       const rf = reinforceCost(s);
       const can = rf.missing > 0 && canAfford(c, rf.cost) && armySize(c) + rf.missing <= popCap(c);
       const btn = rf.missing > 0 ? `<button data-reinforce="${s.id}" ${can ? '' : 'disabled'} title="${costText(rf.cost)}">Reinforce +${rf.missing} (${costText(rf.cost)})</button>` : '<span class="small">full strength</span>';
-      return `<tr><td>${esc(s.name)}</td><td>${SQUAD_TYPES[s.type].label}</td><td>${s.men}/${SQUAD_TYPES[s.type].men}</td><td>${'★'.repeat(s.vet)}${'☆'.repeat(3 - s.vet)}</td><td>${s.lieutenant ? esc(s.lieutenant) : '—'}</td><td>${btn}</td></tr>`;
+      // Lieutenant: pick from your lieutenants; his personality decides how the squad fights under AI
+      const free = c.lieutenants.filter((n) => n === s.lieutenant || !c.squads.some((q) => q.lieutenant === n));
+      const ltSel = c.lieutenants.length
+        ? `<select data-lt="${s.id}"><option value="">—</option>${free.map((n) => `<option value="${esc(n)}" ${n === s.lieutenant ? 'selected' : ''}>${esc(n)} (${TRAITS[traitFor(n)].name})</option>`).join('')}</select>`
+        : '—';
+      const tr = s.lieutenant ? traitDesc(traitFor(s.lieutenant), SQUAD_TYPES[s.type].unit) : null;
+      return `<tr><td>${esc(s.name)}</td><td>${SQUAD_TYPES[s.type].label}</td><td>${s.men}/${SQUAD_TYPES[s.type].men}</td><td>${'★'.repeat(s.vet)}${'☆'.repeat(3 - s.vet)}</td><td>${ltSel}${tr ? `<br><small>${esc(tr)}</small>` : ''}</td><td>${btn}</td></tr>`;
     }).join('');
     const recruit = Object.entries(SQUAD_TYPES).map(([t, d]) => {
       const cost = { food: d.food, wood: d.wood };
       const needB = d.needsBarracks || 1;
-      const ok = barracks >= needB && canAfford(c, cost) && armySize(c) + d.men <= popCap(c);
-      const why = barracks < needB ? `needs ${needB} barracks` : armySize(c) + d.men > popCap(c) ? 'build houses for population' : costText(cost);
-      return `<button data-recruit="${t}" ${ok ? '' : 'disabled'}><b>${d.label}</b> (${d.men} men)<br><small>beats ${d.beats} · ${why}</small></button>`;
+      const needBeacon = d.needsBeacon || 1;
+      const ok = barracks >= needB && c.beacon >= needBeacon && canAfford(c, cost) && armySize(c) + d.men <= popCap(c);
+      const why = barracks < needB ? `needs ${needB} barracks` : c.beacon < needBeacon ? `needs Beacon level ${needBeacon}` : armySize(c) + d.men > popCap(c) ? 'build houses for population' : costText(cost);
+      return `<button data-recruit="${t}" ${ok ? '' : 'disabled'}><b>${d.label}</b> (${d.men} men)<br><small>beats ${d.beats}${d.inst ? ` · +${d.inst}% instability per battle` : ''} · ${why}</small></button>`;
     }).join('');
     return `<div class="army"><table><tr><th>Squad</th><th>Type</th><th>Men</th><th>Veterancy</th><th>Lieutenant</th><th></th></tr>${rows || '<tr><td colspan="5">No squads. Recruit some!</td></tr>'}</table>
-      <p class="small">Population ${armySize(c)}/${popCap(c)}. Squads that survive battles become veterans and fight harder; reinforcing a squad keeps its veterancy. Many of the men you lose in battle are only wounded and rejoin afterwards. Lieutenants (recruited prisoners) steady their squad's morale.</p>
+      <p class="small">Population ${armySize(c)}/${popCap(c)}. Squads that survive battles become veterans and fight harder; reinforcing a squad keeps its veterancy. Many of the men you lose in battle are only wounded and rejoin afterwards. Lieutenants (recruited prisoners) steady their squad's morale, and their personality decides how the squad fights when you leave it to the AI.</p>
       <h3>Recruit ${barracks ? '' : '<small>(build a Barracks in the settlement first)</small>'}</h3><div class="recruit">${recruit}</div></div>`;
+  }
+
+  // ------------------------------------------------------------------ the operative: level and skills
+  operativeHtml() {
+    const c = this.c;
+    const h = ensureHero(c);
+    const lo = xpToReach(h.level), hi = xpToReach(h.level + 1);
+    const pct = Math.min(100, (h.xp - lo) / (hi - lo) * 100);
+    const cols = Object.entries(SKILLS).map(([id, sk]) => {
+      const r = h.skills[id] || 0;
+      const ranks = sk.ranks.map((txt, k) => {
+        const owned = k < r, next = k === r;
+        return `<div class="rank ${owned ? 'owned' : ''} ${next ? 'next' : ''}"><i>${owned ? '◆' : '◇'}</i> ${esc(txt)}</div>`;
+      }).join('');
+      const can = h.points > 0 && r < sk.ranks.length;
+      return `<div class="skill"><h3><span>${sk.icon}</span> ${esc(sk.name)} <small>${r}/${sk.ranks.length}</small></h3>${ranks}
+        ${r < sk.ranks.length ? `<button data-skill="${id}" ${can ? '' : 'disabled'}>Train rank ${r + 1}</button>` : '<p class="small">Mastered</p>'}</div>`;
+    }).join('');
+    const p = heroPerks(c);
+    return `<div class="operative">
+      <div class="opHead"><div><h2>The Operative — level ${h.level}</h2>
+        <div class="xpbar"><i style="width:${pct}%"></i></div>
+        <p class="small">${h.xp} XP · next level at ${hi} XP · <b>${h.points}</b> skill point${h.points === 1 ? '' : 's'} to spend</p></div>
+        <p class="small">XP comes from your kills (4 each), prisoners taken (50), victories (150) and surviving Endless Siege waves. Each level is a skill point. You won't master everything — pick a style.</p></div>
+      <div class="skills">${cols}</div>
+      <p class="small">In battle: ${Math.round(250 * p.maxHp)} health · gun damage ×${p.player.gunDmg} · headshots ×${p.player.head} · bodyguard ${p.bodyguard} men · command view ${Math.round(p.timeScale * 100)}% speed</p>
+    </div>`;
   }
 
   // ------------------------------------------------------------------ keep
@@ -340,6 +378,12 @@ export class Hub {
       this.save();
       this.render();
     }
+    if (t.dataset.lt !== undefined) {
+      const sid = +t.dataset.lt;
+      if (t.value) assignLieutenant(this.c, t.value, sid);
+      else { const s = this.c.squads.find((q) => q.id === sid); if (s) s.lieutenant = null; }
+      this.save(); this.render(); return;
+    }
     if (t.dataset.opt) { this.opts[t.dataset.opt] = t.dataset.opt === 'sabotage' ? +t.value : t.value; this.render(); }
   }
 
@@ -362,7 +406,7 @@ export class Hub {
     if (t.dataset.recruit) {
       const d = SQUAD_TYPES[t.dataset.recruit];
       pay(c, { food: d.food, wood: d.wood });
-      const names = { spear: ['Powys Spears', 'Clwyd Spears', 'Dee Valley Pikes'], sword: ['Teulu Blades', 'Marcher Swords', 'Gwynedd Blades'], archer: ['Gwent Bowmen', 'Cheshire Archers', 'Brecon Longbows'], cavalry: ['Welsh Horse', 'Border Riders', 'Teulu Lances'] }[t.dataset.recruit];
+      const names = { spear: ['Powys Spears', 'Clwyd Spears', 'Dee Valley Pikes'], sword: ['Teulu Blades', 'Marcher Swords', 'Gwynedd Blades'], archer: ['Gwent Bowmen', 'Cheshire Archers', 'Brecon Longbows'], cavalry: ['Welsh Horse', 'Border Riders', 'Teulu Lances'], engineer: ['Sappers', 'Dean Miners', 'Pioneers'], musket: ['Handgonners', 'Thunder Company', 'Firelocks'] }[t.dataset.recruit];
       const name = `${['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'][c.nextSquad % 8]} ${names[c.nextSquad % names.length]}`;
       c.squads.push({ id: c.nextSquad++, name, type: t.dataset.recruit, men: d.men, vet: 0, battles: 0 });
       log(c, `Recruited ${name}.`);
@@ -378,6 +422,10 @@ export class Hub {
     }
     if (t.dataset.pris !== undefined) {
       this.toast(prisonerAction(c, +t.dataset.pris, t.dataset.do));
+      this.save(); this.render(); return;
+    }
+    if (t.dataset.skill) {
+      if (buySkill(c, t.dataset.skill)) this.toast(`${SKILLS[t.dataset.skill].name} training complete.`);
       this.save(); this.render(); return;
     }
     if (t.dataset.ending) { chooseEnding(c, t.dataset.ending); this.save(); this.render(); return; }

@@ -268,3 +268,30 @@ kbd { font: 11px monospace; padding: 1px 4px; border: 1px solid var(--line); bor
 .psTriggers > div { width: 130px; display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 6px; }
 .psTriggers > div .bar { width: 100%; }
 .psTriggers #psPressed { display: block; width: 130px; }
+
+/* The operative: XP and skills */
+#hubTabs .badge.pts { background: #3a8a4a; }
+.operative .opHead { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 20px; align-items: start; max-width: 1000px; }
+.operative h2 { margin: 0 0 8px; }
+.operative .xpbar { height: 10px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden; border: 1px solid var(--line); }
+.operative .xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #c99a2e, #ffd76a); }
+.operative .skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-width: 1000px; margin: 12px 0; }
+.operative .skill { background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+.operative .skill h3 { margin: 0 0 8px; display: flex; gap: 6px; align-items: baseline; }
+.operative .skill h3 small { margin-left: auto; opacity: .7; }
+.operative .rank { font-size: 13px; margin: 5px 0; opacity: .55; }
+.operative .rank.owned { opacity: 1; color: #ffd76a; }
+.operative .rank.next { opacity: .9; }
+.operative .rank i { font-style: normal; }
+.operative .skill button { margin-top: 6px; width: 100%; }
+.army td small { opacity: .7; }
+
+/* Hit feedback: headshots, armour glances, kills */
+#hitmarker.head { filter: drop-shadow(0 0 3px #ff4040); transform: scale(1.35); background: linear-gradient(45deg, transparent 43%, #ff5050 43%, #ff5050 57%, transparent 57%), linear-gradient(-45deg, transparent 43%, #ff5050 43%, #ff5050 57%, transparent 57%); }
+#hitmarker.armor { opacity: .6; background: linear-gradient(45deg, transparent 46%, #9aa 46%, #9aa 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, #9aa 46%, #9aa 54%, transparent 54%); }
+#hitmarker.kill { transform: scale(1.6) rotate(45deg); background: linear-gradient(45deg, transparent 42%, #ff3030 42%, #ff3030 58%, transparent 58%), linear-gradient(-45deg, transparent 42%, #ff3030 42%, #ff3030 58%, transparent 58%); }
+#hitTag { position: absolute; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); font: 700 12px system-ui, sans-serif; letter-spacing: .12em; color: #ff6a5a; text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity .3s; pointer-events: none; }
+#hitTag.on { opacity: 1; transition: none; }
+#hitTag.armor { color: #b8c4c8; }
+#streakReward { position: absolute; top: calc(38% + 34px); left: 0; right: 0; text-align: center; font: 600 14px system-ui, sans-serif; color: #f2ead8; text-shadow: 0 1px 4px #000; opacity: 0; }
+#streakReward.pop { animation: streak 2.2s ease-out; }
