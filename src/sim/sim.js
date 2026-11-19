@@ -9,7 +9,7 @@ import {
   ST_IDLE, ST_MOVE, ST_FIGHT, ST_SHOOT, ST_ROUT, ST_DEAD,
   SNAP_STRIDE, ARROW_STRIDE, MAX_ARROWS,
   ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT, ORDER_CHARGE, ORDER_FOLLOW,
-  FLAG_GARRISON, FLAG_OFFICER, FLAG_AGENT, CELL_BEACON,
+  FLAG_GARRISON, FLAG_OFFICER, FLAG_AGENT, CELL_BEACON, CELL_PALISADE,
   HALF_WORLD, PALISADE_COST_PER_M, NAV_CELL, NAV_DIM,
 } from '../shared/constants.js';
 import { heightAt, inPeaField } from '../shared/terrain.js';
@@ -23,6 +23,7 @@ const GRAVITY = 9.81;
 const ARROW_SPEED_H = 46; // horizontal arrow speed
 const PLAYER = -2; // sentinel target id for the player
 const ROUT_AT = 0.2;
+const HANDGONNE_RELOAD = 1.6; // balance-tested: Handgonners ~1.6x the kill ratio of bowmen
 const RALLY_AT = 0.55;
 const HOME_Z = [-205, 300]; // where each team flees to
 const FORT_HP = 400;
@@ -56,7 +57,11 @@ export class Regiment {
     this.vet = 0; // veterancy level of the player's squads (0-3)
     this.lieutenant = null; // named lieutenant leading this regiment
     this.squadId = null; // the player's persistent squad this regiment represents
-    this.handgun = false; // crude gunpowder weapons (Timeline Instability)
+    this.handgun = false; // crude gunpowder weapons (Timeline Instability, or the player's Handgonners)
+    this.engineer = false; // sappers: breach walls and gates fast, mend palisades
+    this.personality = null; // lieutenant/captain AI: 'aggressive' | 'defensive' | 'flanker'
+    this.homeX = 0; this.homeZ = 0; // where the regiment deployed (defensive captains hold it)
+    this.engaged = 0; // fraction of the regiment fighting hand to hand
     this.agent = false; // the Usurper's rival time-travellers
     this.officer = -1; // unit index of the regiment's officer
   }
@@ -151,6 +156,7 @@ export class Sim {
   spawnRegiment(team, type, name, count, x, z, facing, opts = {}) {
     const reg = this.addRegiment(team, type, name);
     reg.anchorX = x; reg.anchorZ = z; reg.facing = facing;
+    reg.homeX = x; reg.homeZ = z;
     reg.order = { type: ORDER_HOLD, x, z, facing, target: -1 };
     if (opts.hero) {
       const h = this.spawn(reg, HERO, x, z);
@@ -474,6 +480,7 @@ export class Sim {
     this.updateFlying(dt);
     this.updateArrows(dt);
     this.updateStorms(dt);
+    this.updateSappers(dt);
     if (this.mission && this.mission.update) this.mission.update(this, dt);
     this.supplies = Math.min(600, this.supplies + dt * 2.5);
     this.checkOutcome();
@@ -494,6 +501,9 @@ export class Sim {
     // Routers stay listed so they can rally
     for (const i of reg.members) if (this.alive[i] && this.reg[i] === reg.id && this.state[i] === ST_ROUT) keep.push(i);
     reg.members = keep;
+    let fighting = 0;
+    for (const i of keep) if (this.state[i] === ST_FIGHT) fighting++;
+    reg.engaged = nm ? fighting / nm : 0;
     reg.alive = alive;
     reg.routing = routing;
     reg.morale = alive ? mor / alive : 0;
@@ -515,10 +525,14 @@ export class Sim {
     reg.archerTarget = -1;
     if (reg.type === ARCHER || reg.type === HERO || reg.hasArchers) {
       let best = STATS[ARCHER].bowRange, bestId = -1;
+      const flank = reg.personality === 'flanker';
       for (const o of this.regiments) {
         if (o.team === reg.team || o.alive - o.routing <= 0) continue;
         const d = Math.hypot(o.cx - reg.cx, o.cz - reg.cz);
-        if (d < best) { best = d; bestId = o.id; }
+        if (d > STATS[ARCHER].bowRange) continue;
+        // flanking bowmen shoot into the enemy's side while it's locked in melee
+        const score = flank && o.engaged > 0.25 ? d * 0.4 : d;
+        if (score < best) { best = score; bestId = o.id; }
       }
       if (reg.order.type === ORDER_ATTACK && reg.order.target >= 0) {
         const o = this.regiments[reg.order.target];
@@ -713,7 +727,8 @@ export class Sim {
       const tr = this.regiments[reg.archerTarget];
       this.heading[i] = Math.atan2(tr.cx - this.x[i], tr.cz - this.z[i]);
       if (this.bowCd[i] <= 0) {
-        this.bowCd[i] = st.bowCd * this.rng.range(0.8, 1.35);
+        // early handgonnes take an age to reload
+        this.bowCd[i] = st.bowCd * this.rng.range(0.8, 1.35) * (reg.handgun ? HANDGONNE_RELOAD : 1);
         this.loose(i, tr);
       }
       // hold position in the slot
@@ -808,6 +823,33 @@ export class Sim {
       this.vx[i] *= 0.92; this.vz[i] *= 0.92;
       if (f[1] <= 0) this.flying.splice(k, 1);
     }
+  }
+
+  // Rebel sappers mend damaged palisades they stand near (about once a second)
+  updateSappers(dt) {
+    this.sapperT = (this.sapperT || 0) - dt;
+    if (this.sapperT > 0 || !this.fortCells.length) return;
+    this.sapperT = 1;
+    const nav = this.nav;
+    for (const reg of this.regiments) {
+      if (!reg.engineer || reg.team !== TEAM_REBEL || reg.alive - reg.routing <= 0) continue;
+      for (const c of this.fortCells) {
+        if (nav.blocked[c] !== CELL_PALISADE || nav.fortHp[c] >= FORT_HP) continue;
+        const cx = (c % NAV_DIM) * NAV_CELL - HALF_WORLD + NAV_CELL / 2, cz = Math.floor(c / NAV_DIM) * NAV_CELL - HALF_WORLD + NAV_CELL / 2;
+        if (Math.hypot(cx - reg.cx, cz - reg.cz) > 22) continue;
+        nav.fortHp[c] = Math.min(FORT_HP, nav.fortHp[c] + 40);
+      }
+    }
+  }
+
+  // The operative's kill streak: nearby royal soldiers lose their nerve
+  terror(x, z, r, amount) {
+    this.grid.query(x, z, r, (j) => {
+      if (!this.alive[j] || this.team[j] !== TEAM_CROWN) return false;
+      const d = Math.hypot(this.x[j] - x, this.z[j] - z);
+      this.morale[j] -= amount * (1 - d / r * 0.5) * (0.4 + 0.6 * this.fear);
+      return false;
+    });
   }
 
   // Timeline Instability above 80%: time storms lash the battlefield near the operative
@@ -1070,7 +1112,9 @@ export class Sim {
           if (ball) dmg *= 1.5;
           if (this.regiments[this.reg[hit]].formation === 'shieldwall') dmg *= 0.4; // shields up
           this.hp[hit] -= dmg;
-          this.morale[hit] -= 0.02;
+          // the thunder of a handgonne frightens far more than an arrow
+          if (ball) this.shockArea(x, z, 4, 0.015 * (this.team[hit] === TEAM_CROWN ? this.fear : 0.5), this.team[hit]);
+          this.morale[hit] -= ball ? 0.06 : 0.02;
           if (this.hp[hit] <= 0) this.kill(hit, 'arrow');
           this.removeArrow(n); n--; continue;
         }
@@ -1116,8 +1160,10 @@ export class Sim {
       if (this.state[i] !== ST_ROUT) {
         // Royal soldiers tear down rebel palisades; rebels batter the castle gate
         let rate = 0;
-        if (b === 2 && this.team[i] === TEAM_CROWN) rate = 0.6;
-        else if (b === CELL_GATE && this.team[i] === TEAM_REBEL) rate = GATE_HACK;
+        const sapper = this.regiments[this.reg[i]].engineer;
+        if (b === 2 && this.team[i] === TEAM_CROWN) rate = sapper ? 3 : 0.6;
+        else if (b === CELL_GATE && this.team[i] === TEAM_REBEL) rate = sapper ? GATE_HACK * 8 : GATE_HACK;
+        else if (b === CELL_WALL && this.team[i] === TEAM_REBEL && sapper) rate = GATE_HACK * 12; // sappers undermine walls
         else if (b === CELL_BEACON && this.team[i] === TEAM_CROWN) rate = 0.35;
         if (rate) {
           nav.fortHp[c] -= STATS[this.type[i]].dmg * dt * rate;
@@ -1210,6 +1256,7 @@ export class Sim {
       order: r.order.type, ox: r.order.x, oz: r.order.z, target: r.order.target, auto: r.auto,
       hero: r.heroIdx, garrison: r.garrison, inCastle: r.inCastle,
       formation: r.formation, vet: r.vet, squadId: r.squadId, lieutenant: r.lieutenant, agent: r.agent, handgun: r.handgun,
+      engineer: r.engineer, personality: r.personality,
       officer: r.officer, officerName: r.officer >= 0 && this.officers[r.officer] ? this.officers[r.officer].name : null,
     }));
   }

@@ -1,6 +1,6 @@
 // Campaign state and rules: settlement, economy, the Depot (the Handler's shop), army roster,
 // prisoners, Timeline Instability and endings. Saved in the browser (localStorage).
-import { MISSIONS, SQUAD_TYPES } from '../shared/missions.js';
+import { MISSIONS, SQUAD_TYPES, TRAITS, traitFor, traitDesc } from '../shared/missions.js';
 
 const SAVE_KEY = 'timefall.campaign.v1';
 
@@ -9,16 +9,19 @@ const SAVE_KEY = 'timefall.campaign.v1';
 export const ITEMS = {
   pistol: { kind: 'gun', tier: 1, price: 0, name: 'Service Pistol', desc: 'Reliable sidearm. Drops peasants; plate shrugs it off.', inst: 0.01 },
   shotgun: { kind: 'gun', tier: 1, price: 150, name: 'Combat Shotgun', desc: 'Devastating up close.', inst: 0.03 },
+  crossbow: { kind: 'gun', tier: 1, price: 120, name: 'Steel Crossbow', desc: 'Silent and period-correct: punches mail, never frightens the enemy, never cracks the timeline.', inst: 0 },
   rifle: { kind: 'gun', tier: 2, price: 300, name: 'Assault Rifle', desc: 'High caliber, full auto. Punches through plate.', inst: 0.02 },
   sniper: { kind: 'gun', tier: 2, price: 350, name: 'Sniper Rifle', desc: 'Picks off officers from 300 m. Scoped.', inst: 0.12 },
+  smg: { kind: 'gun', tier: 2, price: 260, name: 'Submachine Gun', desc: 'A hose of light rounds. Shreds levies and archers; bounces off plate.', inst: 0.01 },
   c4: { kind: 'stock', tier: 2, price: 45, name: 'Breaching Charge', desc: 'C4 for gates and walls. Bought singly.', max: 6, inst: 1.5 },
   supply: { kind: 'stock', tier: 2, price: 50, name: 'Supply Drop', desc: 'Call in an ammo crate where you aim.', max: 5, inst: 1 },
-  launcher: { kind: 'gun', tier: 3, price: 450, name: 'Grenade Launcher', desc: 'Area denial. Medieval armies break and run.', inst: 0.5 },
+  launcher: { kind: 'gun', tier: 3, price: 450, name: 'Grenade Launcher', desc: 'Area denial. Medieval armies break and run.', inst: 1 },
   suv: { kind: 'vehicle', tier: 3, price: 500, name: 'Armoured SUV', desc: 'Ram formations, resupply from the roof rack.', inst: 2 },
   gunship: { kind: 'stock', tier: 4, price: 260, name: 'Gunship Support', desc: '30 seconds of attack helicopter overhead.', max: 3, inst: 5 },
   airstrike: { kind: 'stock', tier: 4, price: 320, name: 'Airstrike', desc: 'A line of bombs on your mark.', max: 3, inst: 6 },
+  rpg: { kind: 'gun', tier: 4, price: 600, name: 'Rocket Launcher', desc: 'One rocket, one breach: blows castle walls and gates open. Seven rockets a battle.', inst: 2 },
 };
-export const GUN_IDS = ['pistol', 'shotgun', 'rifle', 'sniper', 'launcher'];
+export const GUN_IDS = ['pistol', 'crossbow', 'shotgun', 'smg', 'rifle', 'sniper', 'launcher', 'rpg'];
 
 // ---------------------------------------------------------------- settlement buildings
 export const BUILDINGS = {
@@ -29,6 +32,55 @@ export const BUILDINGS = {
   barracks: { name: 'Barracks', desc: 'Recruit squads. A second barracks trains cavalry.', cost: { wood: 80, food: 40 }, r: 30 },
 };
 export const BEACON_UPGRADES = [null, null, { silver: 250, wood: 60 }, { silver: 500, wood: 120 }, { silver: 900, wood: 200 }];
+
+// ---------------------------------------------------------------- the operative: XP and skills (doc 4.8)
+// Each level grants a skill point; each class has three ranks, bought in order.
+export const SKILLS = {
+  marksman: { name: 'Marksman', icon: '⌖', ranks: ['+15% gun damage', 'Reload 25% faster (stowed guns too)', 'Headshots deal 3.5× damage (from 2.5×)'] },
+  commander: { name: 'Commander', icon: '⚑', ranks: ['Your squads start every battle with higher morale', 'A bodyguard of 16 men (from 10)', 'Command view slows time to 10% (from 20%)'] },
+  engineer: { name: 'Engineer', icon: '⚙', ranks: ['+2 free breaching charges every mission', 'Modern gear causes 25% less Timeline Instability', '+150 palisade supplies in every battle'] },
+  juggernaut: { name: 'Juggernaut', icon: '⛨', ranks: ['+30% health', 'Sledgehammer swings 40% faster and staggers up to 5 men', 'Take 15% less damage; bleed out in 30 s (from 18 s)'] },
+};
+export const xpToReach = (level) => 150 * (level - 1) * level; // L2 300, L3 900, L4 1800, L5 3000…
+
+export function ensureHero(c) {
+  if (!c.hero) c.hero = { xp: 0, level: 1, points: 0, skills: {} };
+  return c.hero;
+}
+
+// Gain XP; returns the number of levels gained
+export function gainXp(c, xp) {
+  const h = ensureHero(c);
+  h.xp += Math.round(xp);
+  let ups = 0;
+  while (h.xp >= xpToReach(h.level + 1)) { h.level++; h.points++; ups++; }
+  return ups;
+}
+
+export function buySkill(c, id) {
+  const h = ensureHero(c);
+  const r = h.skills[id] || 0;
+  if (h.points <= 0 || r >= SKILLS[id].ranks.length) return false;
+  h.skills[id] = r + 1;
+  h.points--;
+  log(c, `The operative trained: ${SKILLS[id].name} rank ${r + 1} (${SKILLS[id].ranks[r]}).`);
+  return true;
+}
+
+// Everything the skills change in battle
+export function heroPerks(c) {
+  const sk = (c && c.hero && c.hero.skills) || {};
+  const m = sk.marksman || 0, cm = sk.commander || 0, e = sk.engineer || 0, j = sk.juggernaut || 0;
+  return {
+    player: {
+      gunDmg: m >= 1 ? 1.15 : 1, reload: m >= 2 ? 0.75 : 1, head: m >= 3 ? 3.5 : 2.5,
+      hammerCd: j >= 2 ? 0.66 : 1.1, hammerMax: j >= 2 ? 5 : 3, bleed: j >= 3 ? 30 : 18, block: 0.12,
+    },
+    maxHp: j >= 1 ? 1.3 : 1, damageTaken: j >= 3 ? 0.85 : 1,
+    moraleBonus: cm >= 1 ? 0.1 : 0, bodyguard: cm >= 2 ? 16 : 10, timeScale: cm >= 3 ? 0.1 : 0.2,
+    c4Bonus: e >= 1 ? 2 : 0, techMul: e >= 2 ? 0.75 : 1, supplyBonus: e >= 3 ? 150 : 0,
+  };
+}
 
 export function newCampaign(difficulty = 'knight') {
   return {
@@ -56,12 +108,19 @@ export function newCampaign(difficulty = 'knight') {
     instability: 5, fear: 1,
     ending: null, awaitingEnding: false,
     endlessBest: 0,
+    hero: { xp: 0, level: 1, points: 0, skills: {} },
     log: ['You arrive in the Welsh March, 1403. The Handler\'s voice crackles in your ear: "The Usurper has broken history. Let\'s see what we can save."'],
   };
 }
 
 export function loadCampaign() {
-  try { const s = localStorage.getItem(SAVE_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
+  try {
+    const s = localStorage.getItem(SAVE_KEY);
+    if (!s) return null;
+    const c = JSON.parse(s);
+    ensureHero(c); // saves from before hero XP
+    return c;
+  } catch { return null; }
 }
 export function saveCampaign(c) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(c)); } catch { /* storage unavailable */ }
@@ -120,7 +179,9 @@ export function missionConfig(c, id, opts = {}) {
     instability: c.instability,
     fear: c.fear,
     squads: c.squads.map((s) => ({ ...s })),
-    moraleBonus: c.executionBuff ? 0.15 : 0,
+    moraleBonus: (c.executionBuff ? 0.15 : 0) + heroPerks(c).moraleBonus,
+    bodyguard: heroPerks(c).bodyguard,
+    supplyBonus: heroPerks(c).supplyBonus,
     sabotage: (opts.sabotage || 0) * 0.1,
     convoyLevel: c.convoyLevel,
     scale: opts.scale || 'standard',
@@ -171,9 +232,11 @@ export function applyResults(c, r) {
   lines.push(`Settlement: +${prod.food} food, +${prod.wood} wood`);
   // consumables used
   for (const [k, v] of Object.entries(r.stockUsed || {})) c.stock[k] = Math.max(0, (c.stock[k] || 0) - v);
-  // Timeline Instability
+  // Timeline Instability (Sappers and Handgonners carry future gear into every battle)
   let dInst = r.instabilityGain;
-  if (!r.highTech) dInst -= 4; // a light touch lets history heal a little
+  const hybrid = c.squads.reduce((a, s) => a + (r.squadsAlive[s.id] !== undefined ? SQUAD_TYPES[s.type].inst || 0 : 0), 0);
+  if (hybrid) { dInst += hybrid; lines.push(`Future-equipped squads: +${hybrid.toFixed(1)}% instability`); }
+  if (!r.highTech && !hybrid) dInst -= 4; // a light touch lets history heal a little
   c.instability = Math.max(0, Math.min(100, c.instability + dInst));
   lines.push(`Timeline Instability ${dInst >= 0 ? '+' : ''}${dInst.toFixed(1)}% → ${c.instability.toFixed(0)}%`);
   // they get used to the thunder-sticks
@@ -193,6 +256,10 @@ export function applyResults(c, r) {
     lines.push('Sycharth was sacked: food and timber lost. It must be retaken.');
   }
   if (r.mission === 'endless') c.endlessBest = Math.max(c.endlessBest, r.wavesCleared);
+  // The operative's experience
+  const xp = r.kills * 4 + r.prisoners.length * 50 + (won ? 150 : 50) + (r.mission === 'endless' ? r.wavesCleared * 40 : 0) + (won && r.mission === 'shrewsbury' ? 250 : 0);
+  const ups = gainXp(c, xp);
+  lines.push(`+${xp} XP${ups ? ` · LEVEL UP! The operative is now level ${c.hero.level}. Spend skill points in the Operative tab.` : ''}`);
   if (c.instability >= 100) { c.ending = 'collapse'; c.awaitingEnding = false; }
   log(c, `${m.title}: ${won ? 'victory' : 'defeat'}. ${lines.slice(0, 2).join('; ')}.`);
   return { silver, lines };
@@ -221,7 +288,8 @@ export function prisonerAction(c, idx, action) {
         c.lieutenants.push(p.name);
         const sq = c.squads.find((s) => !s.lieutenant);
         if (sq) sq.lieutenant = p.name;
-        msg = `${p.name} swears to your cause${sq ? ` and takes command of ${sq.name}` : ''}.`;
+        const style = { aggressive: 'He fights aggressively.', defensive: 'A cautious, defensive commander.', flanker: 'He likes to strike from the flank.' }[traitFor(p.name)];
+        msg = `${p.name} swears to your cause${sq ? ` and takes command of ${sq.name}` : ''}. ${style}`;
       } else msg = `${p.name} refused, and slipped away in the night.`;
       break;
     }
@@ -262,4 +330,11 @@ export function chooseEnding(c, id) {
   log(c, `Ending: ${ENDINGS[id].title}. Endless Siege unlocked.`);
 }
 
-export { SQUAD_TYPES, MISSIONS };
+// Move a lieutenant to another squad (or relieve him: squadId null)
+export function assignLieutenant(c, name, squadId) {
+  for (const s of c.squads) if (s.lieutenant === name) s.lieutenant = null;
+  const sq = c.squads.find((s) => s.id === squadId);
+  if (sq) { sq.lieutenant = name; log(c, `${name} now commands ${sq.name}.`); }
+}
+
+export { SQUAD_TYPES, MISSIONS, TRAITS, traitFor, traitDesc };

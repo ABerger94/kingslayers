@@ -14,7 +14,7 @@ import { PadSetup } from './padSetup.js';
 import { BTN, applyFieldBindings, applyCommandBindings, releasePadButtons } from './gamepad.js';
 import { SNAP_STRIDE, TEAM_REBEL, TEAM_CROWN, ST_DEAD, ST_ROUT, CAVALRY, HERO } from '../shared/constants.js';
 import { MISSIONS } from '../shared/missions.js';
-import { loadCampaign, saveCampaign, newCampaign, clearCampaign, missionConfig, applyResults, ITEMS } from './campaign.js';
+import { loadCampaign, saveCampaign, newCampaign, clearCampaign, missionConfig, applyResults, ITEMS, heroPerks } from './campaign.js';
 import { Hub, showResults } from './hub.js';
 import { buildSettlementScene } from './settlementView.js';
 import { setStructure, cellOf } from './structures.js';
@@ -57,7 +57,10 @@ const ui = {
 };
 const rts = new Rts(scene, camera, input, send, ui);
 player.onMessage = (t, bad) => hud.message(t, bad);
-player.onHit = () => { hud.hitmarker(); audio.hit(); };
+player.onHit = (kind = 'hit') => {
+  hud.hitmarker(kind);
+  if (kind === 'head') audio.headshot(); else if (kind === 'armor') audio.armor(); else audio.hit();
+};
 player.onRumble = (strong, weak, ms) => input.pad.rumble(strong, weak, ms);
 // Controller Setup (intro button, or F2 in game, which pauses the battle)
 const padSetup = new PadSetup(input.pad);
@@ -126,10 +129,12 @@ function handleEvent(ev) {
       }
       if (d < 150 && ev.cause !== 'player') fx.blood(ev.x, groundY(ev.x, ev.z) + 1.1, ev.z, 4);
       if (ev.cause === 'player' || ev.cause === 'explosion' || ev.cause === 'sword') {
+        if (ev.cause !== 'explosion' && player.alive && !rts.active) { hud.hitmarker('kill'); audio.kill(); }
         // kills in quick succession build a streak
         state.streak = state.streakT > 0 ? state.streak + 1 : 1;
         state.streakT = 2.5;
         hud.streak(state.streak);
+        streakReward(state.streak);
       }
       break;
     }
@@ -195,6 +200,26 @@ function handleEvent(ev) {
   }
 }
 
+// Kill streak rewards: a second wind, then terror, then a gift from the Handler
+function streakReward(n) {
+  if (!player.alive) return;
+  if (n === 5) {
+    player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.3);
+    const a = player.ammo[player.weapon];
+    if (!player.melee) { const take = Math.min(player.w.magSize - a.mag, a.reserve); a.mag += take; a.reserve -= take; }
+    hud.streakReward('Second wind: +30% health, magazine topped up');
+  } else if (n === 8) {
+    send({ t: 'terror', x: player.pos.x, z: player.pos.z, r: 32, amount: 0.45 });
+    hud.streakReward('Terror! The royal soldiers around you lose their nerve');
+    audio.radio();
+  } else if (n === 12) {
+    player.c4 = Math.min(player.c4Max + 1, player.c4 + 1);
+    player.c4Max = Math.max(player.c4Max, player.c4);
+    hud.streakReward('Handler: "Nice work. Sending you a breaching charge."');
+    audio.radio();
+  }
+}
+
 function showOutcome(ev) {
   if (state.outcome) return;
   state.outcome = ev.outcome;
@@ -210,7 +235,7 @@ function showOutcome(ev) {
       silver: battle.loot + kills, loot: battle.loot, kills,
       prisoners: battle.prisoners, squadsAlive,
       instabilityGain: battle.instGain, highTech: battle.highTech,
-      stockUsed: { ...support.used, c4: (player.stockUsed && player.stockUsed.c4) || 0 },
+      stockUsed: { ...support.used, c4: Math.max(0, ((player.stockUsed && player.stockUsed.c4) || 0) - (battle.freeC4 || 0)) },
       wavesCleared: battle.wavesCleared,
     };
     hud.bigBanner(ev.outcome === 'victory' ? 'VICTORY' : 'DEFEAT', 4000);
@@ -279,9 +304,11 @@ function deployMission(id, opts) {
   const loadout = c.loadout.filter((g) => c.owned[g]);
   if (!loadout.length) loadout.push('pistol');
   hub.hide();
+  const perks = heroPerks(c);
+  battle.freeC4 = perks.c4Bonus; // the Engineer's free charges don't come out of stock
   startBattle(missionConfig(c, id, { ...opts, sabotage }), {
     loadout, stock: { airstrike: c.stock.airstrike || 0, gunship: c.stock.gunship || 0, supply: c.stock.supply || 0 },
-    c4: c.stock.c4 || 0, suv: !!c.owned.suv, canRespawn: c.difficulty === 'squire', buildings: c.buildings,
+    c4: (c.stock.c4 || 0) + perks.c4Bonus, suv: !!c.owned.suv, canRespawn: c.difficulty === 'squire', buildings: c.buildings, perks,
   });
 }
 
@@ -294,14 +321,19 @@ function startBattle(cfg, setup) {
   // the operative's kit
   player.setLoadout(setup.loadout);
   hud.setLoadout(player.loadout);
-  player.damageTaken = DAMAGE_TAKEN[cfg.difficulty] ?? 1;
+  const perks = setup.perks || heroPerks(null);
+  Object.assign(player.perk, perks.player);
+  player.maxHp = player.hp = Math.round(250 * perks.maxHp);
+  battle.timeScale = perks.timeScale;
+  player.damageTaken = (DAMAGE_TAKEN[cfg.difficulty] ?? 1) * perks.damageTaken;
   player.canRespawn = setup.canRespawn;
   player.c4 = setup.c4;
   player.c4Max = Math.max(3, setup.c4);
   support.stock = { ...setup.stock };
-  const techCost = Object.fromEntries(Object.entries(ITEMS).map(([k, v]) => [k, v.inst]));
+  const tm = perks.techMul;
+  const techCost = Object.fromEntries(Object.entries(ITEMS).map(([k, v]) => [k, v.inst * tm]));
   player.techCost = battle.campaign ? techCost : {};
-  support.techCost = battle.campaign ? { airstrike: ITEMS.airstrike.inst, gunship: ITEMS.gunship.inst, supply: ITEMS.supply.inst } : {};
+  support.techCost = battle.campaign ? { airstrike: ITEMS.airstrike.inst * tm, gunship: ITEMS.gunship.inst * tm, supply: ITEMS.supply.inst * tm } : {};
   player.spawn.set(meta.spawn.x, 0, meta.spawn.z);
   player.pos.copy(player.spawn);
   player.pos.y = groundY(player.pos.x, player.pos.z);
@@ -398,7 +430,7 @@ function toggleMode() {
     rts.enter(player.pos);
     // Start the (controller) cursor in the middle of the screen rather than at a screen edge
     input.mouse.x = innerWidth / 2; input.mouse.y = innerHeight / 2;
-    send({ t: 'timescale', v: 0.2 }); // the world slows to 20% while you think
+    send({ t: 'timescale', v: battle.timeScale || 0.2 }); // the world slows to 20% (10% for a Commander) while you think
   }
   hud.setMode(rts.active, input.pad.active(performance.now()));
 }
@@ -465,7 +497,7 @@ function frame() {
   if (rts.active) applyCommandBindings(pad, input, rts, realDt);
   else applyFieldBindings(pad, input, { canCapture: player.capturable >= 0, inVehicle: player.inVehicle, openSettings: openPadSetup });
   if (input.hit('Tab') && !state.outcome) toggleMode();
-  const scale = rts.active ? (rts.paused ? 0 : 0.2) : 1;
+  const scale = rts.active ? (rts.paused ? 0 : battle.timeScale || 0.2) : 1;
   const dt = realDt * scale;
 
   const shakeBefore = fx.shake;
@@ -498,6 +530,10 @@ function frame() {
   if (player.hits.length) {
     send({ t: 'damage', hits: player.hits, source: 'gun' });
     player.hits = [];
+  }
+  if (player.boltHits.length) {
+    send({ t: 'damage', hits: player.boltHits, source: 'bolt' });
+    player.boltHits = [];
   }
 
   army.update(now, camera.position);

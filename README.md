@@ -26,8 +26,26 @@ On the title screen choose **New campaign**, **Continue campaign**, or **Quick b
 2. **Battle:** fight in third person, switch to command view, loot silver, capture wounded officers.
 3. **Settlement:** place buildings freely (House, Farm, Lumber Mill, Barracks) around the **Temporal Beacon**,
    upgrade the Beacon to unlock better Depot tiers, recruit squads.
-4. **Depot:** spend silver on guns, call-ins (supply drops, gunship, airstrikes), C4 and the armoured SUV.
-5. **Keep:** decide each prisoner's fate: Ransom, Interrogate, Recruit (as a lieutenant), or Execute.
+4. **Depot:** spend silver on guns (pistol, crossbow, shotgun, SMG, rifle, sniper, grenade launcher, rocket
+   launcher), call-ins (supply drops, gunship, airstrikes), C4 and the armoured SUV.
+5. **Army:** recruit squads (incl. late-game **Sappers** and **Handgonners**) and assign lieutenants.
+6. **Operative:** spend skill points earned from XP on four skill trees: Marksman, Commander, Engineer, Juggernaut.
+7. **Keep:** decide each prisoner's fate: Ransom, Interrogate, Recruit (as a lieutenant), or Execute.
+
+### Lieutenants and smarter armies
+
+Recruited prisoners become lieutenants, each with a personality that decides how his squad fights when you
+leave it to the AI: **Aggressive** (wedge, charges early), **Defensive** (shield wall, holds its ground) or
+**Flanker** (swings wide and hits engaged enemies in the side). Royal captains have personalities too, so
+watch for knights circling around your flank. Both generals now pick fights they can win (spears hunt
+cavalry, swords hunt spears), gang up on enemies already locked in melee, and pull battered regiments back
+to their commander to rally.
+
+### Kill streaks and hit feedback
+
+Headshots, armour glances (you need a bigger gun) and kills each have their own marker and sound. Kill
+streaks pay out: 5 kills, a second wind (+30% health, magazine topped up); 8, terror (nearby royal soldiers
+lose their nerve); 12, the Handler sends a breaching charge.
 
 Act 1: *The Hanmer Raid* → *Reprisal at Sycharth* (defend your settlement). Act 2: repeatable *Royal Silver
 Convoy* raids and *Shrewsbury, 21 July 1403* (field battle, then storm the castle and kill the King).
@@ -52,6 +70,7 @@ historical figures. Light-touch missions let history heal. As it rises, the past
 | WASD / Shift / mouse | move / sprint / aim |
 | LMB · RMB | fire · aim (sniper scope) / block with the sword |
 | 1 / 2 · 3 or Q | your two guns · longsword |
+| | the **crossbow** is silent and never raises instability; the **rocket launcher** blows walls open |
 | Hold C | **arm buckler**: parry blows and arrows from the front, even while holding a gun |
 | V | **sledgehammer** bash: staggers even armoured knights |
 | E | capture a wounded officer (they pulse gold on the ground) |
@@ -104,6 +123,8 @@ scripts load the config without writing that temp file), or run `npx vite --conf
 
 ```bash
 npm test                                             # battle sanity test + castle siege test
+node tools/balance.mjs                               # AI-vs-AI kill ratios per mission
+node tools/balance.mjs --squads raid                 # lieutenants, Handgonners, Sappers compared
 node tools/headless-battle.mjs --mission=raid        # also: convoy, defense, endless, shrewsbury
 node tools/headless-battle.mjs --mission=raid --instability=90   # handgonnes, agents, time storms
 ```

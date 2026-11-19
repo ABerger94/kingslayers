@@ -27,8 +27,9 @@ DOTS/Mass if we move engines.
 
 ## Systems (doc section 4)
 
-**4.1 Hero combat.** Guns: pistol, shotgun, assault rifle, sniper, grenade launcher (SMG, RPG and crossbow
-are next). Caliber vs armor: peasants drop to anything; mail needs a rifle; plate needs the sniper, a headshot,
+**4.1 Hero combat.** Guns: pistol, crossbow (silent, no instability, no gunfire terror), shotgun, SMG,
+assault rifle, sniper, grenade launcher, rocket launcher (flat-flying, breaches walls). Hit feedback: distinct
+markers and sounds for hits, headshots, armour glances and kills; kill-streak rewards at 5/8/12 kills. Caliber vs armor: peasants drop to anything; mail needs a rifle; plate needs the sniper, a headshot,
 the hammer or explosives, and bullets visibly glance off plate. Stowed guns reload themselves; total ammo is
 limited per mission, with **supply crates** as call-ins. **Downed state**: you bleed out for 18 s while your
 bodyguard squad (which follows you everywhere) tries to drag you clear. On Squire you're medevaced; otherwise
@@ -37,8 +38,15 @@ the mission fails.
 **4.2 Command.** Orders: move, advance (attack-move), attack, hold, **charge** (run + morale boost), **follow
 me**, retreat, return to AI. Formations: line; wedge (+20% melee damage); shield wall (65% speed, arrows do
 40%, melee 75%). Rock-paper-scissors: spears ×3 vs cavalry, swords ×1.5 vs spears, cavalry ×1.5 vs archers.
-*Lieutenants* exist as named prisoners recruited to lead a squad (morale bonus); their AI personalities
-(Aggressive/Defensive/Flanker) are next.
+*Lieutenants* are named prisoners recruited to lead a squad (morale bonus), reassignable in the Army tab,
+each with an AI personality fixed by his name: Aggressive (wedge, charges early), Defensive (shield wall,
+holds its deployment ground) or Flanker (waypoints to the enemy's flank and hits engaged regiments; flanking
+bowmen shoot into melee). Royal captains get personalities too (flanking knights are rarer: they were the
+biggest balance swing). Both AI generals score targets by distance × rock-paper-scissors matchup, prefer
+enemies already engaged by friends, and pull battered, wavering regiments back to their commander.
+Late-game hybrids: **Sappers** (Beacon 2: undermine walls, batter gates ×8, mend palisades) and
+**Handgonners** (Beacon 3: gunpowder volleys that shake morale, slow to reload). Both add instability per
+battle. Balance-tested with `tools/balance.mjs --squads`.
 
 **4.3 Morale & loyalty.** Per-squad morale (shown in the roster). Officers falling breaks nearby
 formations. **Fear of the Thunder-Stick**: gunfire and explosion terror starts at full strength and fades
@@ -63,7 +71,10 @@ changing major events (Hotspur surviving Shrewsbury) raise it; low-tech missions
 60% rival agents, 80% time storms, 100% collapse.
 
 **4.8 Progression.** Army veterancy: squads that survive keep their names and gain stars (morale and damage).
-Hero XP and the relic skill tree are next.
+Hero XP: kills, prisoners, victories and Endless waves; each level is a skill point for four 3-rank trees:
+Marksman (damage, reload, headshots), Commander (morale, bodyguard, 10% command slow-mo), Engineer (free C4,
+-25% instability, palisade supplies), Juggernaut (health, sledgehammer, damage reduction/bleed-out). Relics
+are next.
 
 **4.9 Vehicles.** Armoured SUV (rams, resupplies, crashes into walls), gunship and airstrike call-ins. Dirt
 bike, truck with turret and tank are next.
@@ -93,8 +104,8 @@ tanks; the Usurper as a boss) is the next big content push.
 
 ## Next (in the doc's suggested order)
 
-1. Lieutenant AI personalities and squad groups; berserker and late-game hybrid units (musketeers, engineers).
+1. Squad groups and berserkers.
 2. More missions per act (rescue, escort, siege with trebuchets/tank), the Usurper as a recurring boss.
-3. Hero XP classes (Marksman, Commander, Engineer, Juggernaut) and the relic skill tree.
-4. More gear: SMG, RPG, crossbow, dirt bike, truck with turret, machine-gun nests and turrets.
+3. Relics feeding the skill trees.
+4. More gear: dirt bike, truck with turret, machine-gun nests and turrets.
 5. Engine port decision (Unity DOTS vs Unreal Mass) once the loop is proven fun.

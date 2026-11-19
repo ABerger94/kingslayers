@@ -19,8 +19,15 @@ export const GUNS = {
   shotgun: { id: 'shotgun', name: 'Combat Shotgun', short: 'SG', magSize: 8, reserve: 40, rpm: 75, auto: false, reload: 2.6, dmg: 30, pellets: 10, spread: 0.06, aimSpread: 0.045, range: 60, caliber: 1 },
   rifle: { id: 'rifle', name: 'Assault Rifle', short: 'AR', magSize: 30, reserve: 240, rpm: 700, auto: true, reload: 1.8, dmg: 95, pellets: 1, spread: 0.008, aimSpread: 0.002, range: 400, caliber: 2 },
   sniper: { id: 'sniper', name: 'Sniper Rifle', short: 'SNP', magSize: 5, reserve: 30, rpm: 45, auto: false, reload: 2.6, dmg: 320, pellets: 1, spread: 0.02, aimSpread: 0.0003, range: 650, caliber: 3, scope: true },
-  launcher: { id: 'launcher', name: 'Grenade Launcher', short: 'GL', magSize: 6, reserve: 18, rpm: 80, auto: false, reload: 3.0, projectile: true, radius: 7, blast: 280, caliber: 3 },
+  launcher: { id: 'launcher', name: 'Grenade Launcher', short: 'GL', magSize: 6, reserve: 18, rpm: 80, auto: false, reload: 3.0, projectile: true, speed: 48, lob: 3, radius: 7, blast: 280, caliber: 3 },
+  smg: { id: 'smg', name: 'Submachine Gun', short: 'SMG', magSize: 40, reserve: 280, rpm: 950, auto: true, reload: 1.5, dmg: 46, pellets: 1, spread: 0.02, aimSpread: 0.009, range: 160, caliber: 1, len: 0.6 },
+  // Period-appropriate: silent, never terrifies the enemy, and barely troubles the timeline
+  crossbow: { id: 'crossbow', name: 'Steel Crossbow', short: 'XBW', magSize: 1, reserve: 36, rpm: 50, auto: false, reload: 1.9, dmg: 210, pellets: 1, spread: 0.01, aimSpread: 0.0015, range: 300, caliber: 2, bolt: true, len: 0.75 },
+  // Flat-flying rocket: breaches castle walls and gates in one shot
+  rpg: { id: 'rpg', name: 'Rocket Launcher', short: 'RPG', magSize: 1, reserve: 7, rpm: 30, auto: false, reload: 2.8, projectile: true, rocket: true, speed: 80, lob: 0, radius: 8, blast: 380, structDmg: 3600, caliber: 3, len: 1.1 },
 };
+// Gun model length/colour by weapon
+const GUN_LOOK = { pistol: [0.35, 0x1c1e1c], shotgun: [0.95, 0x2b2420], rifle: [0.85, 0x1c1e1c], sniper: [1.15, 0x2a2e26], launcher: [0.8, 0x3a3f2c], smg: [0.6, 0x1c1e1c], crossbow: [0.75, 0x5a3d22], rpg: [1.1, 0x4a5236] };
 export const SWORD = { id: 'sword', name: 'Longsword', short: 'SW', melee: true, magSize: 0, reserve: 0 };
 // Armor class by unit type: archers/spearmen are unarmoured, men-at-arms in mail, knights & commanders in plate
 const ARMOR = [0, 1, 0, 2, 2];
@@ -172,6 +179,8 @@ export class Player {
     this.c4Max = 3;
     this.c4 = 3;
     this.techCost = {}; // Timeline Instability per use, by item id (set by the campaign)
+    this.perk = { gunDmg: 1, reload: 1, head: 2.5, hammerCd: 1.1, hammerMax: 3, bleed: 18, block: 0.12 }; // hero skills
+    this.boltHits = []; // pending crossbow damage (silent: no gunfire terror)
     this.charges = [];
     // SUV
     this.suv = { model: buildSUV(), pos: new THREE.Vector3(32, 0, -168), heading: 0, speed: 0, hp: 1500, alive: true };
@@ -504,6 +513,12 @@ export class Player {
     const u = this.model.userData;
     u.gun.visible = !this.melee;
     u.swordPivot.visible = this.melee;
+    const look = GUN_LOOK[this.w.id];
+    if (look && !this.melee) {
+      u.gun.scale.set(this.w.id === 'rpg' ? 1.8 : 1, this.w.id === 'rpg' ? 1.2 : 1, look[0] / 0.85);
+      u.gun.material = u.gun.material.clone();
+      u.gun.material.color.setHex(look[1]);
+    }
   }
 
   // ------------------------------------------------------------------ stowed guns reload themselves
@@ -512,7 +527,7 @@ export class Player {
       const w = this.loadout[k];
       if (w.melee || k === this.weapon || a.mag >= w.magSize || a.reserve <= 0) { a.stowT = 0; return; }
       a.stowT += dt;
-      if (a.stowT >= STOW_RELOAD) {
+      if (a.stowT >= STOW_RELOAD * this.perk.reload) {
         const take = Math.min(w.magSize - a.mag, a.reserve);
         a.mag += take; a.reserve -= take; a.stowT = 0;
       }
@@ -522,7 +537,7 @@ export class Player {
   // ------------------------------------------------------------------ sledgehammer (staggers armoured knights)
   hammerBash(army) {
     if (this.hammerCd > 0 || this.swing) return;
-    this.hammerCd = 1.1;
+    this.hammerCd = this.perk.hammerCd;
     this.hammerT = 0.38;
     this.audio.swoosh(true);
     const face = this.yaw;
@@ -534,7 +549,7 @@ export class Player {
       if (d > 2.9 + (army.typeOf[i] === 3 ? 0.8 : 0) || (d > 0.9 && Math.abs(angleDiff(Math.atan2(dx, dz), face)) > 1.1)) continue;
       this.hammerHits.push(i, 75);
       this.fx.dirt(army.px[i], army.py[i] + 1.2, army.pz[i], 6);
-      if (++n >= 3) break;
+      if (++n >= this.perk.hammerMax) break;
     }
     if (n) { this.audio.clang(); this.audio.slash(); this.camShake = 0.5; this.onHit?.(); this.onRumble?.(0.9, 0.4, 160); }
   }
@@ -697,7 +712,7 @@ export class Player {
 
   // ------------------------------------------------------------------ guns
   startReload() {
-    this.reloading = this.w.reload;
+    this.reloading = this.w.reload * this.perk.reload;
     this.audio.reload();
   }
 
@@ -708,25 +723,28 @@ export class Player {
     const base = this._v.copy(this.aimPoint).sub(muzzle).normalize();
     this.model.rotation.y = this.yaw;
     if (w.projectile) {
-      const v = base.clone().multiplyScalar(48);
-      v.y += 3;
-      this.grenades.push({ p: muzzle.clone(), v, t: 0 });
-      this.onTech?.(this.techCost.launcher || 0);
+      const v = base.clone().multiplyScalar(w.speed);
+      v.y += w.lob;
+      this.grenades.push({ p: muzzle.clone(), v, t: 0, w });
       this.fx.muzzle(muzzle, base, true);
-      this.audio.launcher();
-      this.camShake = 0.3;
-      this.onRumble?.(0.6, 0.4, 150);
+      if (w.rocket) { this.audio.rocket(); this.recoil = Math.min(0.12, this.recoil + 0.05); }
+      else this.audio.launcher();
+      this.camShake = w.rocket ? 0.6 : 0.3;
+      this.onRumble?.(w.rocket ? 1 : 0.6, 0.4, w.rocket ? 260 : 150);
       return;
     }
-    w.pellets > 1 ? this.audio.shotgun() : this.audio.rifle();
-    this.fx.muzzle(muzzle, base, w.pellets > 1);
-    this.camShake = w.pellets > 1 ? 0.6 : 0.15;
+    if (w.bolt) this.audio.crossbow();
+    else if (w.pellets > 1) this.audio.shotgun();
+    else if (w.id === 'smg') this.audio.smg();
+    else this.audio.rifle();
+    if (!w.bolt) this.fx.muzzle(muzzle, base, w.pellets > 1);
+    this.camShake = w.pellets > 1 ? 0.6 : w.bolt ? 0.05 : 0.15;
     if (w.pellets > 1) this.onRumble?.(0.8, 0.6, 160); else this.onRumble?.(0.15, 0.35, 50);
     // Recoil: a kick that springs back, so holding the trigger doesn't walk the aim into the sky
-    this.recoil = Math.min(0.12, this.recoil + (w.pellets > 1 ? 0.06 : 0.012));
+    this.recoil = Math.min(0.12, this.recoil + (w.pellets > 1 ? 0.06 : w.id === 'smg' ? 0.007 : 0.012));
     this.yaw += (Math.random() - 0.5) * 0.002;
     const spread = this.aiming ? w.aimSpread : w.spread;
-    let anyHit = false;
+    let anyHit = false, headshot = false, glanced = false;
     for (let p = 0; p < w.pellets; p++) {
       const d = this._d.copy(base);
       d.x += (Math.random() - 0.5) * spread * 2; d.y += (Math.random() - 0.5) * spread * 2; d.z += (Math.random() - 0.5) * spread * 2;
@@ -734,13 +752,16 @@ export class Player {
       const tT = marchTerrain(muzzle, d, w.range);
       const hit = army.raycast(muzzle.x, muzzle.y, muzzle.z, d.x, d.y, d.z, tT);
       const end = muzzle.clone().addScaledVector(d, hit ? hit.t : tT);
-      if (p < 3 || Math.random() < 0.3) this.fx.tracer(muzzle, end);
+      if (w.bolt) this.fx.tracer(muzzle, end, [0.55, 0.4, 0.25]);
+      else if (p < 3 || Math.random() < 0.3) this.fx.tracer(muzzle, end);
       if (hit) {
         const falloff = w.pellets > 1 ? Math.max(0.3, 1 - hit.t / w.range) : 1;
         const armor = army.agentOf[hit.i] ? 2 : ARMOR[army.typeOf[hit.i]];
         const af = armorFactor(w.caliber || 1, armor, hit.head);
-        const dmg = w.dmg * falloff * (hit.head ? 2.5 : 1) * af;
-        this.hits.push(hit.i, dmg);
+        const dmg = w.dmg * falloff * (hit.head ? this.perk.head : 1) * af * this.perk.gunDmg;
+        (w.bolt ? this.boltHits : this.hits).push(hit.i, dmg);
+        if (hit.head) headshot = true;
+        if (af < 0.5) glanced = true;
         if (af < 0.5) {
           // glances off plate
           for (let k = 0; k < 5; k++) this.fx.spawn(end.x, end.y, end.z, (Math.random() - 0.5) * 5, Math.random() * 4, (Math.random() - 0.5) * 5, 1, 0.9, 0.5, 0.07, 0.2, 9.8);
@@ -751,25 +772,29 @@ export class Player {
         this.fx.dirt(end.x, end.y, end.z, 4);
       }
     }
-    if (anyHit) this.onHit?.();
+    if (anyHit) this.onHit?.(headshot ? 'head' : glanced ? 'armor' : 'hit');
   }
 
   updateGrenades(dt, army) {
     for (let k = this.grenades.length - 1; k >= 0; k--) {
       const g = this.grenades[k];
       g.t += dt;
-      g.v.y -= 9.81 * dt;
+      const w = g.w || GUNS.launcher;
+      if (!w.rocket) g.v.y -= 9.81 * dt;
       g.p.addScaledVector(g.v, dt);
-      if (Math.random() < 0.6) this.fx.spawn(g.p.x, g.p.y, g.p.z, 0, 0.5, 0, 0.6, 0.6, 0.6, 0.25, 0.5, -0.2, 0.3);
+      if (w.rocket) {
+        this.fx.spawn(g.p.x, g.p.y, g.p.z, 0, 0, 0, 1, 0.7, 0.25, 0.3, 0.12, 0);
+        this.fx.spawn(g.p.x, g.p.y, g.p.z, (Math.random() - 0.5), 0.6, (Math.random() - 0.5), 0.75, 0.75, 0.75, 0.45, 1.1, -0.2, 0.35);
+      } else if (Math.random() < 0.6) this.fx.spawn(g.p.x, g.p.y, g.p.z, 0, 0.5, 0, 0.6, 0.6, 0.6, 0.25, 0.5, -0.2, 0.3);
       const gy = groundY(g.p.x, g.p.z);
-      let boom = g.p.y <= gy + 0.1 || g.p.y < gy + structTop(g.p.x, g.p.z) || g.t > 8;
+      let boom = g.p.y <= gy + 0.1 || g.p.y < gy + structTop(g.p.x, g.p.z) || g.t > (w.rocket ? 5 : 8);
       if (!boom && g.t > 0.15) {
         const near = army.nearby(g.p.x, g.p.z, 1.0, TEAM_CROWN);
         if (near.length && g.p.y < army.py[near[0]] + 2 && g.p.y > army.py[near[0]] - 0.5) boom = true;
       }
       if (boom) {
         this.grenades.splice(k, 1);
-        this.detonate(g.p.x, g.p.z, GUNS.launcher.radius, GUNS.launcher.blast);
+        this.detonate(g.p.x, g.p.z, w.radius, w.blast, w.structDmg, w.rocket ? w.radius * 1.2 : w.radius);
       }
     }
   }
@@ -844,7 +869,7 @@ export class Player {
         const tip = this.model.userData.mid.getWorldPosition(this._o);
         for (let k = 0; k < 8; k++) this.fx.spawn(tip.x, tip.y, tip.z, (Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6, 1, 0.85, 0.4, 0.08, 0.25, 9.8);
         if (kind === 'arrow') return;
-        dmg *= 0.12;
+        dmg *= this.perk.block;
       }
     }
     dmg *= this.damageTaken;
@@ -858,7 +883,7 @@ export class Player {
       this.model.rotation.x = -Math.PI / 2;
       // Downed: your bodyguard tries to drag you clear before you bleed out (doc 4.1)
       this.downed = true;
-      this.bleed = 18;
+      this.bleed = this.perk.bleed;
       this.rescue = 0;
       this.onMessage?.('You are down! Your bodyguard is coming for you…', true);
     }

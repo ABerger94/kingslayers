@@ -65,6 +65,7 @@ onmessage = (e) => {
       for (let k = 0; k < m.hits.length; k += 2) sim.damageUnit(m.hits[k], m.hits[k + 1], m.source || 'gun');
       break;
     case 'explode': sim.explode(m.x, m.z, m.r, m.dmg, m.structDmg); break;
+    case 'terror': sim.terror(m.x, m.z, m.r, m.amount); break;
     case 'order':
       for (const id of m.regs) {
         sim.setAuto(id, false);

@@ -9,13 +9,14 @@
 //   fear: 0.35-1                       (how much gunfire still terrifies the enemy)
 //   squads: [{ id, name, type, men, vet, lieutenant }]   (the player's own army)
 //   moraleBonus, sabotage, convoyLevel, seed
+//   bodyguard: size of the operative's bodyguard, supplyBonus: extra palisade supplies (hero perks)
 // }
 import {
   ARCHER, SWORD, SPEAR, CAVALRY, HERO, TEAM_REBEL, TEAM_CROWN, ORDER_ATTACK_MOVE, ORDER_ATTACK,
   ORDER_FOLLOW, ORDER_HOLD, STATS, CELL_BEACON, ST_ROUT,
 } from '../shared/constants.js';
 import { garrisonSpots } from '../shared/castle.js';
-import { MISSIONS, SQUAD_TYPES } from '../shared/missions.js';
+import { MISSIONS, SQUAD_TYPES, traitFor } from '../shared/missions.js';
 
 export const SOUTH = 0; // facing +z
 export const NORTH = Math.PI; // facing -z
@@ -35,8 +36,17 @@ const RANKS = { [ARCHER]: ['Vintenar', 40], [SPEAR]: ['Sergeant', 45], [SWORD]: 
 function officerFor(sim, reg) {
   const name = `${sim.rng() < 0.5 && reg.type !== ARCHER && reg.type !== SPEAR ? 'Sir ' : ''}${FIRST[(sim.rng() * FIRST.length) | 0]} ${LAST[(sim.rng() * LAST.length) | 0]}`;
   const [rank, value] = RANKS[reg.type] || RANKS[SWORD];
-  return sim.assignOfficer(reg, name, rank, Math.round(value * (0.8 + sim.rng() * 0.5)));
+  const i = sim.assignOfficer(reg, name, rank, Math.round(value * (0.8 + sim.rng() * 0.5)));
+  // Royal captains have their own ideas about how to fight
+  if (reg.team === C && reg.type !== ARCHER && reg.type !== HERO) {
+    const r = sim.rng();
+    // (measured with tools/balance.mjs: flanking knights are the most dangerous, so they're rarer)
+    if (reg.type === CAVALRY) reg.personality = r < 0.3 ? 'flanker' : null;
+    else reg.personality = r < 0.25 ? 'aggressive' : r < 0.45 ? 'defensive' : r < 0.55 ? 'flanker' : null;
+  }
+  return i;
 }
+
 
 export function buildMission(sim, cfg = {}) {
   const mission = cfg.mission || 'classic';
@@ -46,6 +56,7 @@ export function buildMission(sim, cfg = {}) {
   sim.allocate(4800);
   (builders[mission] || shrewsbury)(sim, cfg, mission);
   applyInstability(sim, cfg);
+  if (cfg.supplyBonus) sim.supplies += cfg.supplyBonus;
   return sim;
 }
 
@@ -74,12 +85,17 @@ function spawnPlayerArmy(sim, cfg, x, z, facing, opts = {}) {
     reg.squadId = sq.id ?? null;
     reg.vet = sq.vet || 0;
     reg.lieutenant = sq.lieutenant || null;
+    reg.personality = sq.lieutenant ? (sq.trait || traitFor(sq.lieutenant)) : null;
+    if (t.handgun) reg.handgun = true; // Handgonners: gunpowder from the future
+    if (t.engineer) reg.engineer = true; // Sappers
+    if (reg.personality === 'defensive' && t.unit !== ARCHER) reg.formation = 'shieldwall';
+    if (reg.personality === 'aggressive' && t.unit !== ARCHER) reg.formation = 'wedge';
     for (const i of reg.members) sim.morale[i] += (cfg.moraleBonus || 0) + 0.08 * reg.vet;
     regs.push(reg);
   });
   if (opts.bodyguard !== false) {
     // The operative's bodyguard follows him and drags him out if he goes down
-    const bg = sim.spawnRegiment(R, SWORD, 'Your Bodyguard', 10, opts.px ?? x, (opts.pz ?? z) - 6, facing);
+    const bg = sim.spawnRegiment(R, SWORD, 'Your Bodyguard', cfg.bodyguard || 10, opts.px ?? x, (opts.pz ?? z) - 6, facing);
     bg.auto = false;
     bg.formation = 'wedge';
     sim.issueOrder(bg.id, { type: ORDER_FOLLOW });

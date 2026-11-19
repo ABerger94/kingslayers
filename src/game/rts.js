@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { groundY } from './world.js';
 import { marchTerrain } from './player.js';
+import { TRAITS, traitDesc } from '../shared/missions.js';
 import { TEAM_REBEL, TEAM_CROWN, TYPE_NAMES, ORDER_NAMES, ORDER_HOLD, ORDER_MOVE, ORDER_ATTACK_MOVE, ORDER_ATTACK, ORDER_RETREAT, ORDER_CHARGE, ORDER_FOLLOW, FORMATIONS, FORMATION_NAMES, HALF_WORLD, PALISADE_COST_PER_M } from '../shared/constants.js';
 import { TEAM_COLORS } from './army.js';
 import { WALL_H } from '../shared/castle.js';
@@ -392,7 +393,9 @@ export class Rts {
     if (!regs.length) return 'No regiments selected. Click a banner or drag a box around your troops.';
     if (regs.length === 1) {
       const r = regs[0];
-      return `<b>${r.name}</b> — ${TYPE_NAMES[r.type]}${r.vet ? ' ' + '★'.repeat(r.vet) : ''}<br>${r.alive}/${r.initial} men · morale ${(r.morale * 100).toFixed(0)}% · ${ORDER_NAMES[r.order]}${r.auto ? ' (AI)' : ''} · ${FORMATION_NAMES[r.formation] || 'Line'}${r.lieutenant ? `<br>Lieutenant: ${r.lieutenant}` : ''}`;
+      const kind = r.engineer ? 'Sappers' : r.handgun ? 'Handgonners' : TYPE_NAMES[r.type];
+      const trait = r.personality ? TRAITS[r.personality] : null;
+      return `<b>${r.name}</b> — ${kind}${r.vet ? ' ' + '★'.repeat(r.vet) : ''}<br>${r.alive}/${r.initial} men · morale ${(r.morale * 100).toFixed(0)}% · ${ORDER_NAMES[r.order]}${r.auto ? ' (AI)' : ''} · ${FORMATION_NAMES[r.formation] || 'Line'}${r.lieutenant ? `<br>Lieutenant: ${r.lieutenant}${trait ? ` — ${trait.name}: ${traitDesc(r.personality, r.type)}${r.auto ? '' : ' (press G to hand him back the reins)'}` : ''}` : ''}`;
     }
     const men = regs.reduce((a, r) => a + r.alive, 0);
     return `<b>${regs.length} regiments</b> — ${men} men`;

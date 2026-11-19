@@ -7,6 +7,7 @@ import { SUPPORT } from './support.js';
 import { controls } from './controls.js';
 import { HALF_WORLD, WORLD_SIZE, SNAP_STRIDE, TEAM_REBEL, ST_DEAD, ST_ROUT, TYPE_NAMES, ORDER_NAMES } from '../shared/constants.js';
 import { WOODS } from '../shared/terrain.js';
+import { TRAITS, traitDesc } from '../shared/missions.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -19,7 +20,7 @@ export class Hud {
       minimap: $('minimap'), modeTag: $('modeTag'), rtsPanel: $('rtsPanel'), regList: $('regList'), selInfo: $('selInfo'),
       orderButtons: $('orderButtons'), supplies: $('supplies'), selbox: $('selbox'), pauseTag: $('pauseTag'),
       vignette: $('vignette'), hitmarker: $('hitmarker'), crosshair: $('crosshair'), padCursor: $('padCursor'),
-      objectives: $('objectives'), gearRow: $('gearRow'), streak: $('streak'),
+      objectives: $('objectives'), gearRow: $('gearRow'), streak: $('streak'), streakReward: $('streakReward'), hitTag: $('hitTag'),
       timeline: $('timeline'), timelineBar: $('timelineBar'), timelineVal: $('timelineVal'),
       interact: $('interact'), downed: $('downed'), downedText: $('downedText'), downedBar: $('downedBar'), lootTag: $('lootTag'),
     };
@@ -59,11 +60,29 @@ export class Hud {
     this.bannerTimer = setTimeout(() => b.classList.remove('on'), ms);
   }
 
-  hitmarker() {
+  // kind: 'hit' | 'head' | 'armor' (glanced off plate) | 'kill'
+  hitmarker(kind = 'hit') {
     const h = this.el.hitmarker;
-    h.classList.add('on');
+    if (this.hmKind === 'kill' && kind !== 'kill' && performance.now() < this.hmUntil) return; // let the kill marker show
+    h.className = `on ${kind}`;
+    this.hmKind = kind;
+    const ms = kind === 'kill' ? 220 : kind === 'head' ? 140 : 60;
+    this.hmUntil = performance.now() + ms;
     clearTimeout(this.hmT);
-    this.hmT = setTimeout(() => h.classList.remove('on'), 60);
+    this.hmT = setTimeout(() => { h.className = ''; this.hmKind = null; }, ms);
+    if (kind === 'head' || kind === 'armor') {
+      const t = this.el.hitTag;
+      t.textContent = kind === 'head' ? 'HEADSHOT' : 'ARMOUR — need a bigger gun';
+      t.className = `on ${kind}`;
+      clearTimeout(this.htT);
+      this.htT = setTimeout(() => { t.className = kind; }, kind === 'head' ? 500 : 700);
+    }
+  }
+
+  streakReward(text) {
+    const el = this.el.streakReward;
+    el.textContent = text;
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
   }
 
   setSelInfo(html) { this.el.selInfo.innerHTML = html; }
@@ -156,12 +175,12 @@ export class Hud {
         this.regRows.set(r.id, row);
       }
       row.querySelector('.name').textContent = r.name;
-      row.querySelector('.meta').textContent = `${r.alive} · ${r.routing ? 'routing' : ORDER_NAMES[r.order]}${r.auto ? ' · AI' : ''}`;
+      row.querySelector('.meta').textContent = `${r.alive} · ${r.routing ? 'routing' : ORDER_NAMES[r.order]}${r.auto ? ` · AI${r.personality ? ` (${TRAITS[r.personality].name})` : ''}` : ''}`;
       row.querySelector('.bar i').style.width = `${r.initial ? r.alive / r.initial * 100 : 0}%`;
       row.classList.toggle('sel', rts.selected.has(r.id));
       row.classList.toggle('routing', r.routing > r.alive / 2);
       row.classList.toggle('gone', r.alive === 0);
-      row.title = TYPE_NAMES[r.type];
+      row.title = `${r.engineer ? 'Sappers' : r.handgun ? 'Handgonners' : TYPE_NAMES[r.type]}${r.lieutenant ? ` — led by ${r.lieutenant}` : ''}${r.personality ? `: ${traitDesc(r.personality, r.type)}` : ''}`;
     }
     this.setSelInfo(rts.mode ? this.el.selInfo.innerHTML : rts.selectedSummary());
   }

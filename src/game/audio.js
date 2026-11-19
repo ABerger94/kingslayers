@@ -50,6 +50,12 @@ export class Audio {
 
   rifle() { this.burst({ dur: 0.12, freq: 2400, gain: 0.5, decay: 0.1, pitchDrop: 0.3 }); this.burst({ dur: 0.2, freq: 300, gain: 0.5, decay: 0.18 }); }
   shotgun() { this.burst({ dur: 0.3, freq: 1600, gain: 0.8, decay: 0.25, pitchDrop: 0.2 }); this.burst({ dur: 0.35, freq: 200, gain: 0.8, decay: 0.3 }); this.burst({ dur: 0.08, freq: 3000, gain: 0.2, type: 'bandpass', delay: 0.45 }); }
+  smg() { this.burst({ dur: 0.07, freq: 2800, gain: 0.32, decay: 0.06, pitchDrop: 0.3 }); this.burst({ dur: 0.1, freq: 420, gain: 0.3, decay: 0.08 }); }
+  crossbow() { this.tone(160, 0.09, 0.18, 'triangle', 0.6); this.burst({ dur: 0.06, freq: 1800, gain: 0.18, type: 'bandpass', q: 3 }); }
+  rocket() { this.burst({ dur: 0.5, freq: 900, gain: 0.7, decay: 0.45, pitchDrop: 0.4 }); this.burst({ dur: 0.25, freq: 180, gain: 0.7, decay: 0.22 }); }
+  headshot() { this.tone(1400, 0.06, 0.1, 'square', 0.7); this.tone(2100, 0.05, 0.06, 'sine', 1); }
+  armor() { this.tone(2600, 0.07, 0.05, 'triangle', 0.95); }
+  kill() { this.tone(620, 0.07, 0.09, 'square', 0.6); }
   launcher() { this.burst({ dur: 0.15, freq: 500, gain: 0.6, decay: 0.15 }); this.tone(180, 0.12, 0.2, 'triangle', 0.5); }
   explosion(dist = 0) {
     const g = Math.max(0.15, 1.2 - dist / 250);

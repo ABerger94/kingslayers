@@ -63,4 +63,23 @@ export const SQUAD_TYPES = {
   sword: { label: 'Swordsmen', unit: 1, men: 32, food: 60, wood: 30, beats: 'spearmen' },
   archer: { label: 'Archers', unit: 0, men: 32, food: 45, wood: 35, beats: 'infantry at range' },
   cavalry: { label: 'Cavalry', unit: 3, men: 16, food: 70, wood: 40, beats: 'archers', needsBarracks: 2 },
+  // Late-game hybrids (doc 4.2): gear and know-how from the future, so they cost instability per battle
+  engineer: { label: 'Sappers', unit: 1, men: 24, food: 55, wood: 60, beats: 'walls, gates and palisades; mends your palisades', needsBeacon: 2, engineer: true, inst: 0.5 },
+  musket: { label: 'Handgonners', unit: 0, men: 28, food: 50, wood: 40, beats: 'armour at range; the noise breaks nerves', needsBeacon: 3, handgun: true, inst: 1.5 },
 };
+
+// Lieutenant personalities (doc 4.2): how a lieutenant's squad fights when left to the AI
+export const TRAITS = {
+  aggressive: { name: 'Aggressive', desc: 'Charges early in a wedge and goes straight for the enemy.', archer: 'Pushes the bowmen in close and never gives ground.' },
+  defensive: { name: 'Defensive', desc: 'Holds its ground in a shield wall and fights only what comes close.', archer: 'Holds the ground it was given and shoots from there.' },
+  flanker: { name: 'Flanker', desc: 'Swings wide and hits engaged enemies in the side or rear.', archer: 'Shoots into enemies already locked in melee with your men.' },
+};
+// Description of a trait for a squad of the given unit type (archers fight differently)
+export const traitDesc = (trait, unit) => (unit === 0 ? TRAITS[trait].archer : TRAITS[trait].desc);
+
+// Personality of a lieutenant, fixed by his name so older saves get one too
+export function traitFor(name) {
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return ['aggressive', 'defensive', 'flanker'][h % 3];
+}
